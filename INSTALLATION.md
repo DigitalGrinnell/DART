@@ -15,111 +15,77 @@ This document provides detailed installation instructions for DART (Digital Asse
 
 ---
 
----
+## macOS/Linux Installation (Source)
 
-## macOS Installation (DMG)
-
-DART for macOS is distributed as a DMG file with an automated installer that requires **no admin permissions**.
+DART runs from source on Linux and Mac systems.
 
 ### Prerequisites
 
-- **macOS 12** (Monterey) or later
-- **Python 3.8+** must be installed
-  - Download from: [python.org/downloads](https://python.org/downloads)
-  - Or install via Homebrew: `brew install python`
+- **Python 3.8+**
+  - Most Linux distributions include Python 3
   - Verify: `python3 --version`
+  - Install if needed:
+    - Debian/Ubuntu: `sudo apt install python3 python3-venv`
+    - Fedora/RHEL: `sudo dnf install python3`
+    - Arch: `sudo pacman -S python`
+    - macOS: download from [python.org/downloads](https://python.org/downloads) or Homebrew - `brew install python`
+- **macOS 12** (Monterey) or later if installing on macOS
 
 ### Installation Steps
 
-1. **Download the DMG**
-   - Download `DART_vX.x.dmg` from your distribution source
+1. **Download or Clone**
+   ```bash
+   # Clone from repository:
+   git clone https://github.com/Digital-Grinnell/DART.git
+   cd DART
+   ```
 
-2. **Open the DMG**
-   - Double-click the downloaded DMG file
-   - A new window opens showing the installer contents. 
+2. **Install common-DG-utilities (required dependency)**
+   ```bash
+   cd ..
+   git clone https://github.com/Digital-Grinnell/common-DG-utilities.git
+   cd DART
+   ```
 
-Note for Mac users who are UPDATING DART to a new version:  You may need to remove or move your `~/DART/` folder to get it out of the way BEFORE the `Install DART.command` can run successfully!  
+3. **Run DART**
+   ```bash
+   ./run.sh
+   ```
 
-3. **Run the Installer**
-   - Double-click: `Install DART.command`
-   
-   **Note for first-time users (unsigned app) and updates:**
-   - If the installer won't open, macOS Gatekeeper is blocking it
-   - Right-click on `Install DART.command` → select "Open"
-   - If the app is blocked close the dialog then proceed to `System Settings...` and `Privacy & Security` 
-   - The key is to look for a statement like "Install DART.command was blocked..." and there should be an `Open Anyway` button beside it.  Click that button to allow the install.  
-   - This is only needed once
+4. **First Launch**
+   - The script creates a Python virtual environment in `.venv/`
+   - Installs all dependencies automatically
+   - Launches the DART application
+   - Subsequent runs skip the setup phase
 
-4. **Follow the Installation**
-   - A Terminal window opens with the installer
-   - The installer checks for Python 3
-   - Confirms installation location: `~/DART/`
-   - Copies all files (takes a few seconds)
-   - Creates a launcher on your Desktop
-   - Press Enter when finished
+**Note for developers:** The `python_requirements.txt` file includes `-e ../common-DG-utilities` which references the sibling repository. This line is automatically removed by the build scripts when creating DMG/ZIP distributions since those packages bundle the utilities directly.
 
-5. **Eject the DMG**
-   - Right-click the mounted DART volume → Eject
-   - Or drag it to the Trash
+### Creating a Desktop Launcher (Optional for Linux)
 
-### Installation Location
+Create `~/.local/share/applications/dart.desktop`:
 
-DART is installed to: `~/DART/` (your home directory)
-
-```
-~/DART/
-├── Launch DART.command   # Double-click to start DART
-├── run.sh                # Root compatibility launcher
-├── app.py                # Main application
-├── scripts/              # Launcher and helper scripts
-│   └── run.sh            # Launcher script
-├── common_dg_utilities/  # Utility functions (included)
-├── INSTALLATION.md       # This file
-├── README.md            # Full documentation
-└── ... (other files)
+```ini
+[Desktop Entry]
+Type=Application
+Name=DART
+Comment=Digital Asset Routing and Transformation
+Exec=/path/to/DART/scripts/run.sh
+Icon=utilities-terminal
+Terminal=false
+Categories=Utility;
 ```
 
-### Desktop Shortcut
+Update `/path/to/DART/` with your actual path.
 
-The installer creates: **Launch DART** on your Desktop
+### Headless Linux
 
-- Double-click this to launch DART at any time
-- It's a symbolic link to `~/DART/Launch DART.command`
+For headless Linux operation on `dg-landing`, use the separate
+[Headless Linux Installation Guide](INSTALL-LINUX.md). It covers explicit
+private storage, source-mount approval, dependencies, and deployment
+boundaries. Then follow the [Operating Overview](LINUX-HEADLESS-OVERVIEW.md) and
+[Acceptance Testing](LINUX-ACCEPTANCE.md). The source/desktop instructions
+below remain available for native use.
 
-### First Launch
-
-1. **Start DART**
-   - Double-click: `Launch DART` (on Desktop)
-   - Or navigate to `~/DART/` and double-click: `Launch DART.command`
-
-2. **Automatic Setup (first time only)**
-   - A Terminal window opens
-   - Python virtual environment is created in `~/DART/.venv/`
-   - Dependencies install automatically (1-2 minutes)
-   - Progress is shown in the Terminal
-
-3. **DART Window Opens**
-   - The DART application window appears when ready
-   - The Terminal window stays open (don't close it!)
-   - Minimize the Terminal if you want it out of the way
-
-4. **Subsequent Launches**
-   - Just double-click the launcher
-   - DART starts immediately (no setup needed)
-   - Dependencies are already installed
-
-### Why No Applications Folder?
-
-**Traditional approach issues:**
-- Many work computers restrict Applications folder access
-- Requires admin permissions to install
-- Users encounter permission errors
-
-**DART's solution:**
-- Installs to `~/DART/` in your home directory
-- No admin permissions required
-- Works on all systems, including managed/restricted computers
-- Clean, predictable location
 
 ---
 
@@ -180,75 +146,6 @@ DART for Windows is distributed as a ZIP archive.
 
 ---
 
-## Linux Installation (Source)
-
-For headless Linux operation on `dg-landing`, use the separate
-[Headless Linux Installation Guide](INSTALL-LINUX.md). It covers explicit
-private storage, source-mount approval, dependencies, and deployment
-boundaries. Then follow the [Operating Overview](LINUX-HEADLESS-OVERVIEW.md) and
-[Acceptance Testing](LINUX-ACCEPTANCE.md). The source/desktop instructions
-below remain available for native use.
-
-DART runs from source on Linux systems.
-
-### Prerequisites
-
-- **Python 3.8+**
-  - Most Linux distributions include Python 3
-  - Verify: `python3 --version`
-  - Install if needed:
-    - Debian/Ubuntu: `sudo apt install python3 python3-venv`
-    - Fedora/RHEL: `sudo dnf install python3`
-    - Arch: `sudo pacman -S python`
-
-### Installation Steps
-
-1. **Download or Clone**
-   ```bash
-   # Clone from repository:
-   git clone https://github.com/Digital-Grinnell/DART.git
-   cd DART
-   ```
-
-2. **Install common-DG-utilities (required dependency)**
-   ```bash
-   cd ..
-   git clone https://github.com/Digital-Grinnell/common-DG-utilities.git
-   cd DART
-   ```
-
-3. **Run DART**
-   ```bash
-   ./run.sh
-   ```
-
-4. **First Launch**
-   - The script creates a Python virtual environment in `.venv/`
-   - Installs all dependencies automatically
-   - Launches the DART application
-   - Subsequent runs skip the setup phase
-
-**Note for developers:** The `python_requirements.txt` file includes `-e ../common-DG-utilities` which references the sibling repository. This line is automatically removed by the build scripts when creating DMG/ZIP distributions since those packages bundle the utilities directly.
-
-### Creating a Desktop Launcher (Optional)
-
-Create `~/.local/share/applications/dart.desktop`:
-
-```ini
-[Desktop Entry]
-Type=Application
-Name=DART
-Comment=Digital Asset Routing and Transformation
-Exec=/path/to/DART/scripts/run.sh
-Icon=utilities-terminal
-Terminal=false
-Categories=Utility;
-```
-
-Update `/path/to/DART/` with your actual path.
-
----
-
 ## Prerequisites
 
 ### Python 3.8 or Later
@@ -297,16 +194,6 @@ The following Python packages are installed automatically on first launch:
 
 ### macOS Issues
 
-#### "Install DART.command can't be opened"
-
-**Cause:** macOS Gatekeeper blocking unsigned app
-
-**Solution:**
-1. Right-click on `Install DART.command`
-2. Select "Open" from the menu
-3. Click "Open" in the security dialog
-4. Only needed once
-
 #### "Python 3 not found" error
 
 **Cause:** Python not installed or not in PATH
@@ -321,13 +208,11 @@ brew install python
 python3 --version
 ```
 
-#### Installer says "DART is already installed"
+#### `./run.sh` error
 
-**Cause:** Previous DART installation exists
+**Cause:** missing dependencies/requirements
 
-**Solution:**
-- Type `y` to overwrite the old installation
-- Or type `n` to cancel and manually remove `~/DART/` first
+**Solution:** ensure `../common-DG-utilities` is installed and exists in the same folder `DART` was cloned/downloaded into.
 
 #### DART window doesn't appear
 
@@ -420,15 +305,13 @@ sudo dnf install python3-tkinter
 **Cause:** DMG/ZIP was missing the utilities folder
 
 **Solution:**
-- This should not happen with properly built installers v2.2+
-- The build scripts automatically bundle common_dg_utilities
-- For developers: Ensure `../common-DG-utilities/` exists when building
+- Ensure `../common-DG-utilities/` exists when building
 
 #### "not a valid editable requirement" error
 
 **Cause:** Using source repository with missing sibling common-DG-utilities repo
 
-**Solution (for developers):**
+**Solution:**
 ```bash
 # Clone the required utilities repository
 cd ..
@@ -436,26 +319,27 @@ git clone https://github.com/Digital-Grinnell/common-DG-utilities.git
 cd DART
 ```
 
-**Note:** DMG/ZIP installers automatically remove this dependency since utilities are bundled directly.
-
 ---
 
 ## Uninstallation
 
-### macOS
+### macOS/Linux
 
 1. **Delete the application folder:**
    ```bash
-   rm -rf ~/DART
+   rm -rf ~/path/to/DART
    ```
 
 2. **Delete user data (optional):**
    ```bash
-   rm -rf ~/DART-data
+   rm -rf ~/path/to/DART-data
    ```
 
-3. **Remove Desktop shortcut:**
-   - Drag `Launch DART` from Desktop to Trash
+3. **Remove Desktop shortuct (if created)**
+   ```bash
+   # Linux
+   rm ~/.local/share/applications/dart.desktop
+   ```
 
 ### Windows
 
@@ -469,19 +353,6 @@ cd DART
 
 3. **Remove Desktop shortcut (if created):**
    - Delete the DART shortcut from Desktop
-
-### Linux
-
-```bash
-# Delete DART folder
-rm -rf ~/path/to/DART
-
-# Delete user data (optional)
-rm -rf ~/DART-data
-
-# Remove desktop launcher (if created)
-rm ~/.local/share/applications/dart.desktop
-```
 
 ---
 
@@ -543,6 +414,6 @@ DART stores sensitive settings (like Azure connection strings) using encrypted s
 
 ---
 
-*Last updated: June 5, 2026*  
-*DART Version: 2.x*  
+*Last updated: November 13, 2026*  
+*DART Version: 7.x*  
 *Documentation: [https://github.com/Digital-Grinnell/DART](https://github.com/Digital-Grinnell/DART)*
