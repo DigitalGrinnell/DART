@@ -3,7 +3,22 @@
 ## Purpose
 Generate small and thumbnail derivative images from your original files and upload them to Azure Blob Storage with automatic URL population in your CSV metadata file.
 
+Function 3 may generate derivatives from archive-only originals; the original
+must remain accessible at its source path. A newly generated derivative that
+itself exceeds `archive-only-file-threshold` is not uploaded: desktop DART
+reports an upload failure and headless DART fails the job. Existing Azure
+derivatives may still be reused; the setting does not remove existing blobs.
+See [Function 2](FUNCTION_2_EXPORT_CSV.md#archive-only-media) for the
+preservation manifest and its limitations.
+
+Private files are never used as derivative sources. Function 3 rejects older
+exports containing private filenames and asks for a fresh Function 2 export.
+In OHM mode, a private sibling image also prevents reuse or generation of
+derivatives for the MP3; existing Azure derivatives are not deleted.
+
 ## Headless Linux Derivatives
+
+**Disabled in DART 7.1.** The following describes the prior headless workflow.
 
 [Headless DART](LINUX-HEADLESS-OVERVIEW.md) runs derivatives as the
 `derivatives` job (explicit managed `csv_path`) or inside `prepare`. It

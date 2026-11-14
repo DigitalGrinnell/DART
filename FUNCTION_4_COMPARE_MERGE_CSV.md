@@ -3,7 +3,16 @@
 ## Purpose
 Compare two CSV files to identify matching records, new records, changed values, and records missing from the new file. Uses the csvdiff tool for fast, accurate comparison with detailed change tracking. This function automatically uses your core metadata CSV (from settings) as the baseline and auto-selects the newest DART_export CSV from your working directory for comparison.
 
+When private filename prefixes are configured, Function 4 blocks comparison
+if either the core CSV or selected export contains a matching filename,
+including an underscore-prefixed compound parent. Review and remove existing
+public records separately before merging; DART does not remove published
+metadata or Azure blobs automatically.
+
 ## Reviewing Headless DART Handoff Packages
+
+**Disabled in DART 7.1.** The following describes the prior workflow; desktop
+pull and snapshot-push controls are inactive.
 
 Interactive compare and merge happen here, on the desktop, against the
 authoritative core CSV. [Headless DART](LINUX-HEADLESS-OVERVIEW.md) on Linux

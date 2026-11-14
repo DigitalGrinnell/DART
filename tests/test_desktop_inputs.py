@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 import tempfile
 import unittest
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import app
+import dart_archive
 from dart_processing import derivative_source_exports
 
 
@@ -65,6 +67,14 @@ class DesktopInputsTests(unittest.TestCase):
                         and control.label == "Select Function to Execute")
         selector.on_change(SimpleNamespace(control=SimpleNamespace(value=function)))
 
+    def use_show_core(self):
+        data = self.root / "SHOW" / "collections" / "test" / "_data"
+        data.mkdir(parents=True)
+        core = data / "test_metadata.csv"
+        core.write_bytes(self.core.read_bytes())
+        self.settings["core_metadata_csv"] = str(core)
+        return data / "PRIVATE_test_metadata.csv"
+
     def test_analysis_retries_saved_inputs_after_volume_becomes_available(self):
         page = self.start_page(initially_unavailable=True)
         with patch.object(app, "shared_group_objects_by_source_directory",
@@ -87,6 +97,184 @@ class DesktopInputsTests(unittest.TestCase):
         self.assertEqual(2, len(parents))
         self.assertEqual(2, len(children))
         self.assertEqual({row["objectid"] for row in parents}, {row["parentid"] for row in children})
+
+    def test_export_records_large_media_without_uploading_it(self):
+        large = self.inputs / "first" / "first.jpg"
+        with large.open("wb") as stream:
+            stream.truncate(1_000_001)
+        self.settings.update({"archive-only-file-threshold": 1,
+                              "azure_blob_storage_path": "assets/objs/test",
+                              "azure_connection_string": "AccountName=test"})
+        page = self.start_page()
+        client = Mock()
+        client.get_container_client.return_value.exists.return_value = True
+        client.get_blob_client.return_value.exists.return_value = False
+        with patch.object(app, "init_azure_client", return_value=(True, client, "connected")), \
+                patch.object(app, "upload_to_azure", return_value=(True, "uploaded")) as upload:
+            self.execute(page, "function_2_export_csv")
+        self.assertEqual(["second.jpg"], [Path(call.args[1]).name for call in upload.call_args_list])
+        manifest = self.root / ".DART-working-directory" / dart_archive.MANIFEST_NAME
+        record = json.loads(manifest.read_text())[0]
+        self.assertEqual((str(large), 1_000_001), (record["original_path"], record["file_size_bytes"]))
+        export = next((self.root / ".DART-working-directory").glob("DART_export_*.csv"))
+        with export.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        row = next(row for row in rows if row["original_file_name"] == "first.jpg")
+        self.assertEqual(record["objectid"], row["objectid"])
+        self.assertEqual("record", row["display_template"])
+
+    def test_private_compound_children_are_separate_and_never_uploaded(self):
+        private_csv = self.use_show_core()
+        public_core = Path(self.settings["core_metadata_csv"])
+        core_before = public_core.read_bytes()
+        first = self.inputs / "first" / "PRIVATE-form.pdf"
+        second = self.inputs / "first" / "RESTRICTED-note.docx"
+        first.write_bytes(b"private document")
+        second.write_bytes(b"private document")
+        private_only = self.inputs / "private-only"
+        private_only.mkdir()
+        (private_only / "PRIVATE-other.pdf").write_bytes(b"private")
+        self.settings.update({
+            "private_file_prefixes": "PRIVATE-;RESTRICTED-",
+            "azure_blob_storage_path": "assets/objs/test",
+            "azure_connection_string": "AccountName=test",
+        })
+        client = Mock()
+        client.get_container_client.return_value.exists.return_value = True
+        client.get_blob_client.return_value.exists.return_value = False
+        page = self.start_page()
+        with patch.object(app, "init_azure_client", return_value=(True, client, "connected")), \
+                patch.object(app, "upload_to_azure", return_value=(True, "uploaded")) as upload:
+            self.execute(page, "function_2_export_csv")
+        self.assertEqual({"first.jpg", "second.jpg"}, {Path(call.args[1]).name for call in upload.call_args_list})
+        with private_csv.open(newline="") as stream:
+            private_rows = list(csv.DictReader(stream))
+        self.assertEqual(core_before, public_core.read_bytes())
+        self.assertEqual({"PRIVATE-form.pdf", "RESTRICTED-note.docx", "PRIVATE-other.pdf"},
+                         {row["original_file_name"] for row in private_rows})
+        self.assertEqual(3, len({row["objectid"] for row in private_rows}))
+        self.assertTrue(all(row["objectid"] and row["parentid"] for row in private_rows))
+        public_csv = next((self.root / ".DART-working-directory").glob("DART_export_*.csv"))
+        with public_csv.open(newline="") as stream:
+            public_rows = list(csv.DictReader(stream))
+        self.assertTrue(all("PRIVATE-" not in str(row) and "RESTRICTED-" not in str(row)
+                            for row in public_rows))
+        parent_ids = {row["objectid"] for row in public_rows if row["type"] == "compound"}
+        self.assertEqual(2, len(parent_ids))
+        private_form = next(row for row in private_rows if row["original_file_name"] == first.name)
+        self.assertIn(private_form["parentid"], parent_ids)
+        manifest = self.root / ".DART-working-directory" / dart_archive.MANIFEST_NAME
+        self.assertEqual(3, len(json.loads(manifest.read_text())))
+
+        for path in (first, second, private_only / "PRIVATE-other.pdf"):
+            path.unlink()
+        previous = private_csv.read_bytes()
+        self.settings["azure_connection_string"] = ""
+        self.execute(page, "function_2_export_csv")
+        self.assertEqual(previous, private_csv.read_bytes())
+
+    def test_private_csv_invalid_destination_stops_before_upload(self):
+        self.settings.update({
+            "private_file_prefixes": "PRIVATE-",
+            "azure_blob_storage_path": "assets/objs/test",
+            "azure_connection_string": "AccountName=test",
+        })
+        page = self.start_page()
+        with patch.object(app, "init_azure_client") as azure:
+            self.execute(page, "function_2_export_csv")
+        azure.assert_not_called()
+        self.assertFalse((self.root / ".DART-working-directory").exists())
+
+    def test_ohm_private_transcript_and_image_are_not_public(self):
+        directory = self.inputs / "OHM-data" / "Person_dg_123"
+        directory.mkdir(parents=True)
+        (directory / "dg_123.mp3").write_bytes(b"audio")
+        (directory / "dg_123.csv").write_text("start,end,text\n0,1,private\n")
+        (directory / "PRIVATE-image.jpg").write_bytes(b"private")
+        private_csv = self.use_show_core()
+        self.settings.update({"process_OHM_data": True, "private_file_prefixes": "dg_123.csv;PRIVATE-"})
+        page = self.start_page()
+        self.execute(page, "function_2_export_csv")
+        export = next((self.root / ".DART-working-directory").glob("DART_export_*.csv"))
+        with export.open(newline="") as stream:
+            public_rows = list(csv.DictReader(stream))
+        self.assertEqual(1, len(public_rows))
+        self.assertEqual(("test_dg_123", "record", ""), (
+            public_rows[0]["objectid"], public_rows[0]["display_template"], public_rows[0]["object_transcript"]))
+        with private_csv.open(newline="") as stream:
+            private_rows = list(csv.DictReader(stream))
+        self.assertEqual({"dg_123.csv", "PRIVATE-image.jpg"},
+                         {row["original_file_name"] for row in private_rows})
+        self.assertEqual({"test_dg_123"}, {row["parentid"] for row in private_rows})
+        self.assertEqual(2, len({row["objectid"] for row in private_rows}))
+        self.assertFalse((self.root / "_data" / "transcripts" / "test_dg_123.csv").exists())
+
+    def test_derivatives_reject_old_export_containing_private_names(self):
+        work = self.root / ".DART-working-directory"
+        work.mkdir()
+        (work / "DART_export_20200101_000000.csv").write_text(
+            "objectid,original_file_name,filepath\nid,_PRIVATE-file.jpg,/missing\n"
+        )
+        self.settings.update({"private_file_prefixes": "PRIVATE-",
+                              "azure_blob_storage_path": "assets/objs/test",
+                              "azure_connection_string": "AccountName=test"})
+        page = self.start_page()
+        with patch.object(app, "init_azure_client", return_value=(True, Mock(), "connected")), \
+                patch.object(app, "upload_to_azure") as upload:
+            self.execute(page, "function_3_generate_derivatives")
+        upload.assert_not_called()
+        self.assertFalse((work / "temp_derivatives").exists())
+
+    def test_ungrouped_private_file_fails_without_writing_export(self):
+        (self.inputs / "PRIVATE-file.pdf").write_bytes(b"private")
+        self.use_show_core()
+        self.settings["private_file_prefixes"] = "PRIVATE-"
+        page = self.start_page()
+        self.execute(page, "function_2_export_csv")
+        self.assertFalse(list((self.root / ".DART-working-directory").glob("DART_export_*.csv")))
+
+    def test_merge_blocks_existing_private_records(self):
+        self.core.write_text("objectid,original_file_name,parentid,title,type,filepath\n"
+                             "id,_PRIVATE-file.jpg,,,,\n")
+        work = self.root / ".DART-working-directory"
+        work.mkdir()
+        (work / "DART_export_20200101_000000.csv").write_text(
+            "objectid,original_file_name,parentid,title,type,filepath\nid,public.jpg,,,,\n"
+        )
+        self.settings["private_file_prefixes"] = "PRIVATE-"
+        page = self.start_page()
+        with patch.object(app, "compare_metadata_rows") as compare:
+            self.execute(page, "function_4_compare_merge")
+            button = next(action for action in page.overlay[-1].actions if action.text == "Use Newest")
+            button.on_click(None)
+        compare.assert_not_called()
+        self.assertIn("_PRIVATE-file.jpg", self.core.read_text())
+
+    def test_private_csv_write_failure_does_not_publish_export(self):
+        (self.inputs / "first" / "PRIVATE-file.pdf").write_bytes(b"private")
+        self.use_show_core()
+        self.settings["private_file_prefixes"] = "PRIVATE-"
+        page = self.start_page()
+        with patch.object(dart_archive, "write_private_csv", side_effect=OSError("read-only")):
+            self.execute(page, "function_2_export_csv")
+        self.assertFalse(list((self.root / ".DART-working-directory").glob("DART_export_*.csv")))
+
+    def test_headless_settings_are_disabled_and_local_inputs_remain_usable(self):
+        self.settings.update({"headless_host": "user@example.test",
+                              "headless_project_dir": "/data/dart/data/projects/test"})
+        page = self.start_page()
+        toggle = next(control for control in self.walk(page.controls)
+                      if isinstance(control, app.ft.IconButton)
+                      and control.tooltip == "Expand/Collapse app settings section")
+        toggle.on_click(None)
+        controls = list(self.walk(page.controls))
+        fields = [control for control in controls if isinstance(control, app.ft.TextField)]
+        self.assertFalse(any(field.label == "Private Metadata CSV" for field in fields))
+        for label in ("Headless Host", "Headless Project Directory"):
+            field = next(field for field in fields if field.label == label)
+            self.assertTrue(field.disabled)
+        inputs = next(field for field in fields if field.label == "Inputs Folder")
+        self.assertFalse(inputs.disabled)
 
     def test_missing_inputs_reports_configured_path_not_missing_selection(self):
         page = self.start_page()

@@ -158,6 +158,8 @@ class JobService:
         return {key: values[key] for key in keys}
 
     def submit(self, session: str, kind: str, inputs: dict[str, Any]) -> str:
+        if not app.HEADLESS_ENABLED:
+            raise RuntimeError("Headless DART is currently disabled; use the desktop application.")
         with self._mutex:
             self.require_operator(session)
             if self._active is not None:
@@ -171,7 +173,7 @@ class JobService:
             snapshot = directory / "settings-snapshot.json"
             atomic_json(snapshot, {key: settings[key] for key in
                                    (*FLAGS, "collection-id", "core_metadata_csv", "gems_metadata_csv",
-                                    "azure_blob_storage_path", "file_to_id_map")})
+                                    "azure_blob_storage_path", "archive-only-file-threshold", "file_to_id_map")})
             job = dict(id=job_id, kind=kind, state="queued", inputs=values, created_at=now(),
                        updated_at=now(), message="Queued", progress=0, result={},
                        min_free_bytes=self.storage.min_free_bytes,

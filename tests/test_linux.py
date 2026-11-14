@@ -18,6 +18,7 @@ from unittest.mock import MagicMock, patch
 from PIL import Image
 
 import app
+import dart_archive
 import dart_handoff
 import dart_processing
 from dart_service import ACTIVE, JobService, RedactedFormatter
@@ -30,6 +31,9 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(os.name == "posix", "Managed headless Linux storage requires POSIX")
 class ManagedTests(unittest.TestCase):
     def setUp(self):
+        enabled = patch.object(app, "HEADLESS_ENABLED", True)
+        enabled.start()
+        self.addCleanup(enabled.stop)
         self.previous_umask = os.umask(0o077)
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name).resolve()
@@ -588,6 +592,80 @@ class ManagedTests(unittest.TestCase):
         self.assertEqual(1, len(settings["file_to_id_map"]))
         self.assertNotIn("secret", self.service.log_tail(job["id"]))
 
+    def test_archive_only_export_keeps_manifest_and_never_uploads_large_media(self):
+        large = self.source / "large.pdf"
+        with large.open("wb") as stream:
+            stream.truncate(1_000_001)
+        self.values.update({"archive-only-file-threshold": 1, "azure_blob_storage_path": "assets/objs/test"})
+        self.service.configure("operator", str(self.work), self.values)
+        with patch.dict(os.environ, {"DART_AZURE_CONNECTION_STRING": "secret"}), \
+                patch("app.BlobServiceClient.from_connection_string", return_value=MagicMock()), \
+                patch.object(Workflow, "upload", return_value=("https://example.test/small", True)) as upload:
+            job = self.success("export", input_dir=str(self.source), allow_uploads=True)
+            self.assertEqual(["sample.jpg"], [call.args[1].name for call in upload.call_args_list])
+        rows = read_csv(Path(job["result"]["csv"]))[1]
+        large_row = next(row for row in rows if row["original_file_name"] == "large.pdf")
+        self.assertEqual("", large_row["object_location"])
+        self.assertEqual("record", large_row["display_template"])
+        self.assertTrue(large_row["objectid"])
+        self.assertEqual("image", next(row["display_template"] for row in rows
+                                       if row["original_file_name"] == "sample.jpg"))
+        manifest = self.work / ".DART-working-directory" / dart_archive.MANIFEST_NAME
+        record = json.loads(manifest.read_text())[0]
+        self.assertEqual((str(large), large_row["objectid"], large_row["objectid"] + ".pdf", 1_000_001),
+                         (record["original_path"], record["objectid"], record["new_filename"], record["file_size_bytes"]))
+        self.export()
+        self.assertEqual([record], json.loads(manifest.read_text()))
+
+    def test_ohm_large_sibling_is_recorded_without_upload(self):
+        directory = self.source / "OHM-data" / "Person_dg_123"
+        directory.mkdir(mode=0o700, parents=True)
+        (directory / "dg_123.mp3").write_bytes(b"audio")
+        (directory / "dg_123.csv").write_text("start,end,text\n0,1,Hello\n")
+        sibling = directory / "photo.jpg"
+        with sibling.open("wb") as stream:
+            stream.truncate(1_000_001)
+        self.values.update({"process_OHM_data": True, "archive-only-file-threshold": 1,
+                            "azure_blob_storage_path": "assets/objs/test"})
+        self.service.configure("operator", str(self.work), self.values)
+        with patch.dict(os.environ, {"DART_AZURE_CONNECTION_STRING": "secret"}), \
+                patch("app.BlobServiceClient.from_connection_string", return_value=MagicMock()), \
+                patch.object(Workflow, "upload", return_value=("https://example.test/file", True)) as upload:
+            self.success("export", input_dir=str(self.source), allow_uploads=True)
+        self.assertNotIn(sibling, [call.args[1] for call in upload.call_args_list])
+        records = json.loads((self.work / ".DART-working-directory" / dart_archive.MANIFEST_NAME).read_text())
+        self.assertEqual(1, len(records))
+        self.assertEqual(("test_dg_123", "test_photo_dg_123.jpg", str(sibling)),
+                         (records[0]["objectid"], records[0]["new_filename"], records[0]["original_path"]))
+
+    def test_large_ohm_mp3_exports_as_metadata_only_record(self):
+        directory = self.source / "OHM-data" / "Person_dg_123"
+        directory.mkdir(mode=0o700, parents=True)
+        with (directory / "dg_123.mp3").open("wb") as stream:
+            stream.truncate(1_000_001)
+        (directory / "dg_123.csv").write_text("start,end,text\n0,1,Hello\n")
+        self.values.update({"process_OHM_data": True, "archive-only-file-threshold": 1})
+        self.service.configure("operator", str(self.work), self.values)
+        _, rows = read_csv(Path(self.export()["result"]["csv"]))
+        self.assertEqual(("test_dg_123", "record", ""), (
+            rows[0]["objectid"], rows[0]["display_template"], rows[0]["object_location"]
+        ))
+
+    def test_invalid_archive_manifest_stops_export_before_upload(self):
+        source = self.source / "large.pdf"
+        with source.open("wb") as stream:
+            stream.truncate(1_000_001)
+        self.values.update({"archive-only-file-threshold": 1, "azure_blob_storage_path": "assets/objs/test"})
+        self.service.configure("operator", str(self.work), self.values)
+        manifest = self.work / ".DART-working-directory" / dart_archive.MANIFEST_NAME
+        manifest.write_text("{bad")
+        with patch.dict(os.environ, {"DART_AZURE_CONNECTION_STRING": "secret"}), \
+                patch("app.BlobServiceClient.from_connection_string") as azure:
+            job = self.run_job("export", input_dir=str(self.source), allow_uploads=True)
+        self.assertEqual("failed", job["state"])
+        azure.assert_not_called()
+        self.assertEqual("{bad", manifest.read_text())
+
     def test_ohm_transcripts_use_existing_ids_and_private_local_copies(self):
         directory = self.source / "OHM-data" / "Person_dg_123"
         directory.mkdir(mode=0o700, parents=True)
@@ -733,6 +811,7 @@ class ManagedTests(unittest.TestCase):
         self.assertEqual(str(self.core), snapshot["core_metadata_csv"])
         self.assertNotIn("azure_connection_string", snapshot)
 
+    @unittest.skipUnless(app.HEADLESS_ENABLED, "Headless CLI is disabled")
     def test_real_managed_headless_entry_point_configures_and_prepares(self):
         env_file = self.root / "dart.env"
         env_file.write_text(f"DART_CONFIG_DIR={self.config}\nDART_DATA_DIR={self.data}\n"

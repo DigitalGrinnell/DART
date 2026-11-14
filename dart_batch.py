@@ -8,12 +8,13 @@ from pathlib import Path
 from typing import Any
 
 import app
+import dart_archive
 from dart_service import JobService, now
 from dart_storage import LowDiskSpace, absolute, atomic_bytes, atomic_json, private, redact
 from dart_workflows import FLAGS, project_settings, read_csv
 
 ENTRY_KEYS = {"collection_id", "input_dir", "setup", "allow_uploads", "overwrite", "backfill", "derivatives"}
-SETUP_KEYS = {"core_template", "gems_metadata_csv", "azure_blob_storage_path", *FLAGS}
+SETUP_KEYS = {"core_template", "gems_metadata_csv", "azure_blob_storage_path", "archive-only-file-threshold", *FLAGS}
 
 
 def validate_queue(inputs: dict[str, Any]) -> list[dict[str, Any]]:
@@ -51,6 +52,8 @@ def validate_queue(inputs: dict[str, Any]) -> list[dict[str, Any]]:
             for field in ("gems_metadata_csv", "azure_blob_storage_path"):
                 if field in setup and not isinstance(setup[field], str):
                     raise ValueError(f"{collection}: {field} must be a string.")
+            if "archive-only-file-threshold" in setup:
+                dart_archive.threshold_bytes(setup["archive-only-file-threshold"])
     return inputs["collections"]
 
 
@@ -91,6 +94,7 @@ def prepare_project(service: JobService, entry: dict[str, Any]) -> Path:
         "core_metadata_csv": str(snapshot),
         "gems_metadata_csv": setup.get("gems_metadata_csv", ""),
         "azure_blob_storage_path": setup.get("azure_blob_storage_path", ""),
+        "archive-only-file-threshold": int(setup.get("archive-only-file-threshold", dart_archive.DEFAULT_THRESHOLD_MB)),
         "group_compound_objects": setup.get("group_compound_objects", True),
         "create_multiple_objects": setup.get("create_multiple_objects", False),
         "process_OHM_data": setup.get("process_OHM_data", False),

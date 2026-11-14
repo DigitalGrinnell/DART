@@ -20,24 +20,19 @@ Previously saved settings remain in the folder selected when they were saved.
 
 ## Headless DART Handoff Settings
 
-Two optional desktop settings connect this project to
-[headless DART on Linux](LINUX-HEADLESS-OVERVIEW.md). Function 4 uses them to pull
-prepared handoff packages and to push a read-only core snapshot:
+**Disabled in DART 7.1.** The settings are retained but inactive, and
+Function 4 cannot pull packages or push snapshots. The notes below describe
+the previous workflow; an independently installed or already-running remote
+instance is not stopped by this change.
 
 | Setting | Example | Meaning |
 | --- | --- | --- |
 | `headless_host` | `sysadmin@dg-landing` | SSH target (`host` or `user@host`) running headless DART |
 | `headless_project_dir` | `/data/dart/data/projects/REPLACE-COLLECTION` | Absolute managed project directory on that host |
 
-Set both or neither. DART validates them before saving and rejects SSH
-options or relative paths. Desktop DART calls the system `ssh` in batch mode,
-so key-based SSH authentication must already work. The headless project must
-use the same `collection-id` as this desktop project.
-
-Headless DART itself is configured on Linux with `dart_linux --configure`;
-Azure credentials there come only from the server's private environment file.
-See [Linux Installation](INSTALL-LINUX.md) for the storage and credential
-boundary. The desktop editor behavior below is otherwise unchanged.
+Previously, both settings were required together, with key-based SSH and the
+same `collection-id` on both sides. See the historical
+[Linux Overview](LINUX-HEADLESS-OVERVIEW.md).
 
 ## Security Note
 The desktop **`azure_connection_string` is encrypted** when saved to
@@ -57,6 +52,8 @@ described above and does not change the desktop encryption format.
 - **Process OHM-Data Objects** (`process_OHM_data`): When checked, enables OHM-data processing in Functions 1 and 2. OHM-data files remain standalone regardless of the grouping settings. **[CHECKBOX]**
 - **Use Working Folder for File Selection** (`use_working_folder_for_file_selection`): When checked, the File Selector opens in the working/outputs folder. When unchecked, it opens in the inputs folder. **[CHECKBOX]**
 - **Overwrite Existing Azure Files** (`overwrite_existing_azure_files`): When checked, Functions 2 and 3 replace existing Azure blobs with newly generated uploads. When unchecked (default), DART skips existing blobs when possible. **[CHECKBOX]**
+- **Archive-Only File Threshold (MB)** (`archive-only-file-threshold`): Positive whole number of decimal MB (1 MB = 1,000,000 bytes), default 50. Source media strictly larger than this value are recorded for future preservation instead of uploaded to Azure; files exactly at the threshold can be uploaded. See [Function 2](FUNCTION_2_EXPORT_CSV.md) for the manifest and important preservation limitations. **[VALIDATED]**
+- **Private Filename Prefixes** (`private_file_prefixes`): Optional, case-sensitive filename prefixes separated by semicolons. Matching files of any extension are private compound children, excluded from public exports and uploads, and recorded for preservation. The public core CSV must be in SHOW's `collections/<collection-id>/_data/` directory; DART writes the private CSV beside it with `PRIVATE_` prefixed to its filename. See [Function 2](FUNCTION_2_EXPORT_CSV.md#private-compound-children).
 - **Core Metadata CSV** (`core_metadata_csv`): Path to your core metadata CSV file. This file serves two purposes: (1) defines the column structure/template for metadata exports, and (2) acts as the master metadata file that future functions will update and merge into. **[VALIDATED]** As of v6.0, if this path's filename is literally `collection-template.csv`, Functions 4 and 6 refuse to merge into it — point this setting at your project's own copy instead. This mirrors the `DG-with-CB-and-Pagefind` site repository's overlay model, where `collections/_collection-template/_data/collection-template.csv` is likewise a reserved template that gets renamed per-collection and never deployed as-is; see that repository's `docs/DG-documents/Creating a New Collection (Overlay Model).md`.
 - **GEMS Metadata CSV** (`gems_metadata_csv`, optional, v6.6+): Path to the GEMS run's `collection_metadata.csv` for the batch you're processing. When set, Function 4 offers to **backfill** the DART export before comparing. It fills empty fields with the GEMS metadata (title, date, description, subjects, and so on), so new records reach the core CSV with full metadata. Use **Browse...** to pick it, or **Clear** to turn the backfill off. **[VALIDATED]**: the file must exist and have an `original_file_name` column. GEMS's CSV is cumulative, so after each new GEMS batch, point this at the newest run's file. See "GEMS Backfill" in `FUNCTION_4_COMPARE_MERGE_CSV.md`.
 - **Azure Blob Storage Path** (`azure_blob_storage_path`): Azure Blob Storage path for cloud storage operations. **[VALIDATED]**
@@ -65,8 +62,7 @@ described above and does not change the desktop encryption format.
   - Example: `objs/TDPS_archive` or `mycontainer/objs/photos`
   - **Parallel folders**: Your Azure storage should also contain `/smalls/` and `/thumbs/` folders as siblings to `/objs/` for derivative files
   - Validation ensures `/objs/` is present; `/smalls/` and `/thumbs/` are expected but not verified programmatically
-- **Headless Host** (`headless_host`, optional): SSH target (`host` or `user@host`) running headless DART on Linux, for example `sysadmin@dg-landing`. Requires key-based SSH. Set together with **Headless Project Directory**, or leave both blank. See "Headless DART Handoff Settings" above. **[VALIDATED]**
-- **Headless Project Directory** (`headless_project_dir`, optional): Absolute Linux path of this collection's managed project on `headless_host`. Function 4 pulls handoff packages from its `handoff/` folder and pushes `core-snapshot.csv` into it. **[VALIDATED]**
+- **Headless Host** (`headless_host`) and **Headless Project Directory** (`headless_project_dir`): Retained but disabled; see "Headless DART Handoff Settings" above.
 - **Azure Connection String** (`azure_connection_string`): Azure Storage account connection string for authentication. Required for uploading files to Azure Blob Storage. **[ENCRYPTED]**
 - **api_key**: Your API key for external services. **[ENCRYPTED]**
 - **api_secret**: Your API secret for external services. **[ENCRYPTED]**

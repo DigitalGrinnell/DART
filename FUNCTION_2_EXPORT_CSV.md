@@ -5,6 +5,10 @@ Export analyzed digital assets to a CSV file using your configured template stru
 
 ## Headless Linux Export
 
+**Disabled in DART 7.1.** The following describes the previous headless
+workflow, retained for reference. It does not update or stop a separate
+remote installation.
+
 [Headless DART](LINUX-HEADLESS-OVERVIEW.md) shares desktop CSV row construction
 but writes a job-ID-named export inside the managed project's hidden working
 directory, using the pushed core snapshot for column structure and existing
@@ -38,7 +42,7 @@ Use this function when you want to:
 - **CSV structure template** must be configured in App Settings
 - Digital asset files to export (either selected files or in inputs folder)
 - **Compounds Grouped by Subdirectory**: During an Inputs Folder scan with no files selected, Function 2 creates one compound per immediate subfolder and includes supported assets from all nested descendants; root-level files remain standalone. The setting is enabled by default and can be changed in App Settings. Selecting specific files uses filename-based grouping.
-- **OHM-data mode**: When `process_OHM_data` is enabled, select the project folder containing `OHM-data` (or select `OHM-data` itself). Function 2 ignores file selections and exports only recursively discovered `.mp3` files, uploading them to Azure when configured.
+- **OHM-data mode**: When `process_OHM_data` is enabled, select the project folder containing `OHM-data` (or select `OHM-data` itself). Function 2 ignores file selections and exports only recursively discovered `.mp3` files, uploading eligible files to Azure when configured.
 
 The displayed Inputs Folder is rechecked at export time, not cached from
 startup. If a network volume was unavailable at launch, mount it and retry
@@ -104,7 +108,7 @@ The function automatically populates these CollectionBuilder fields from your as
   - Full URL to file in Azure: `https://account.blob.core.windows.net/container/path/objectid.ext`
   - Files are uploaded to Azure with renamed filenames matching their objectid
   - Example: `https://collectionbuilder.blob.core.windows.net/objs/tdps/dg_1715614222.jpg`
-  - Empty if Azure is not configured in App Settings
+  - Empty for archive-only media or if Azure is not configured in App Settings
 - **OHM-data fields**: In `process_OHM_data` mode, the export has one standalone row per MP3. Each row has `type=transcript`, `object_location` set to the MP3's Azure URL, and `object_transcript` set to the transcript CSV filename. The transcript CSV is copied to `_data/transcripts` and uploaded to Azure under the parallel `transcripts` path.
 - **OHM-data identifiers**: OHM file IDs are taken from the existing filename stem. For example, `dg_1782850662.pdf` uploads as `re26/re26_dg_1782850662.pdf` when `collection-id` is `re26`; Function 2 does not replace it with a newly generated timestamp ID.
 - **Existing filename identifiers**: For other assets without a saved path mapping, a `dg_<number>` found in the filename is preserved instead of generating a new timestamp identifier. The configured `collection-id` prefix is still applied.
@@ -116,7 +120,7 @@ The function automatically populates these CollectionBuilder fields from your as
 - **OHM-data subject**: `subject` is set to a fixed, semicolon-separated list of subject headings: `<interviewee>—Interviews; Grinnell College—Students; Grinnell College—History; Alumni and alumnae; College students—Iowa; College environment—Iowa; Higher education—Iowa—History; Oral history`. The `subject` column is added to the export automatically in OHM mode if not already present in the template.
 - **OHM-data sibling filenames**: Let `<dg_basename>` be the MP3's `dg_...` basename. A sibling beginning with `dg_` uploads as `<prefix>_<dg_basename>.<extension>`. Any other sibling uploads as `<prefix>_<basename>_<dg_basename>.<extension>`. For example, beside `dg_1782852672.mp3`, `dg_1782852672.csv` uploads as `re26/re26_dg_1782852672.csv`, while `review_notes.md` uploads as `re26/re26_review_notes_dg_1782852672.md`.
 - **OHM-data transcript uploads**: Transcript CSVs use the parallel Azure `transcripts` path, derived from the configured `objs` path, and the container is created before upload when necessary.
-- **OHM-data sibling files**: Direct sibling files beside each MP3 are excluded from the metadata CSV because CollectionBuilder cannot display them as transcript children. They are still uploaded to the Azure `objs` path using OHM sibling naming. Transcript CSVs are uploaded to the parallel `transcripts` path. These uploads use Azure's normal Hot tier; cold storage can be applied later.
+- **OHM-data sibling files**: Direct sibling files beside each MP3 are excluded from the metadata CSV because CollectionBuilder cannot display them as transcript children. Eligible siblings are uploaded to the Azure `objs` path using OHM sibling naming; oversized media siblings are recorded in the archive-only manifest instead. Transcript CSVs are uploaded to the parallel `transcripts` path. These uploads use Azure's normal Hot tier; cold storage can be applied later.
 - **OHM-data processing order**: Function 2 writes the metadata CSV before starting upload-only sibling and transcript transfers. Detailed auxiliary upload progress is written to the logfile, so large files may continue uploading after the CSV is available.
 - **title**: Suggested title for compound objects (if column exists and compound grouping enabled)
   - Generated from filename prefix pattern
@@ -132,6 +136,84 @@ All other columns from your template are included as empty fields, ready for you
 - And any other metadata defined in your template
 
 ## Azure Blob Storage Upload
+
+### Archive-Only Media
+
+The `archive-only-file-threshold` setting defaults to 50 MB (50,000,000
+bytes). Image, PDF, audio, and video source files strictly larger than the
+threshold are not uploaded to Azure, even in overwrite mode. Their
+`object_location` is blank; smaller files and files exactly at the threshold
+continue through the usual upload workflow. Media are identified by supported
+extensions and recognized media MIME types inferred from their filenames.
+Existing Azure blobs are not deleted or changed.
+
+Archive-only originals retain their durable `objectid` and use
+`display_template=record`, SHOW's metadata-only item layout. Function 2 adds
+the `display_template` column to the export if necessary; when it is absent
+from the core CSV, choose to append the export-only column during Function 4
+review so the layout is retained. In OHM mode this replaces the `transcript`
+layout for an archive-only MP3. Function 3 may still generate derivatives
+from accessible archive-only originals.
+
+Function 2 records oversized originals and OHM media siblings, even in a
+local-only export, in `.DART-working-directory/DART_archive_only.json`. It
+adds or updates entries without deleting earlier records. Each entry contains
+`originating_file_name`, `original_path` (the absolute path on the machine
+running DART), `objectid`, `new_filename`, `created_at` (UTC), `title`,
+`file_size_bytes`, `username`, `dart_version`, and `collection_slug`. For OHM
+siblings, `objectid` identifies the associated MP3 and `new_filename` follows
+the sibling's Azure naming convention. Titles available at export are used;
+otherwise the title is blank. Later metadata edits and GEMS backfill do not
+automatically update the manifest.
+
+**The manifest is not a copy or backup of the media.** Keep every original
+file at its recorded path, backed up and accessible, until it is safely ingested
+into Archivematica. DART does not verify a checksum or perform that ingest.
+Do not move, rename, delete, or replace these originals in the meantime. GEMS
+folders containing archive-only rows remain in place because those rows have
+no `object_location`. The headless manifest stays on the Linux project and is
+not included in desktop handoffs; its paths are Linux paths and are not
+translated to desktop network paths. Headless operation is currently disabled.
+
+### Private Compound Children
+
+Set case-sensitive, semicolon-separated `private_file_prefixes` in App Settings.
+The configured public core CSV must be an existing absolute path inside SHOW's
+`collections/<collection-id>/_data/` directory. DART writes the private CSV
+beside it, using the public filename prefixed with `PRIVATE_`: for example,
+`test_metadata.csv` becomes `PRIVATE_test_metadata.csv`. The CSV files and
+collection directories must not be symlinks. DART never uses the configured
+core CSV as the private destination.
+
+An earlier `private_metadata_csv` setting is ignored. DART does not move or
+delete any previously written private CSV; review its contents before using
+the new destination.
+
+Function 2 recognizes matching filenames of any extension and excludes them
+from the public export and Azure uploads regardless of size. Their durable
+`objectid` and `parentid` are written to the private CSV, and their source
+references are added to the archive-only manifest. Private children must have
+a compound parent; an ungrouped private file stops the export. Private-only
+compounds do not produce public parent rows. For mixed compounds, public
+parent filenames are based on a public child. In OHM mode, a private sibling
+is associated with the public MP3; a private transcript is not copied or
+uploaded, and the MP3 uses the metadata-only `record` layout.
+
+Each export containing private files **replaces** the private CSV with that
+export's private rows; an export without private files leaves the existing CSV
+untouched. Preserve any manual private metadata elsewhere before exporting;
+matching descriptive values from the core CSV are carried over when available.
+The CSV is separate from the public metadata, but everyone who can read the
+SHOW repository can read it. Review site configuration and repository access
+before storing sensitive information there.
+
+Existing public metadata, Azure blobs, published copies, and earlier copied
+transcripts are **not removed**. Review and remove them through an approved
+separate process. Function 4 blocks a merge if the core CSV or selected export
+still names private files. A manifest entry is only a reference; it does not
+copy the file or ingest it into Archivematica.
+
+### Upload Workflow
 
 When Azure is configured in App Settings, Function 2 automatically:
 
@@ -166,7 +248,7 @@ When Azure is configured in App Settings, Function 2 automatically:
    - Safe to re-run Function 2 multiple times without re-uploading existing files
    - Detailed log messages for each upload
    - CSV is created even if some uploads fail
-   - object_location URLs are included for all files (successful or not)
+   - object_location URLs are included for non-archive-only files (successful or not)
 
 ### Azure Configuration Requirements
 
@@ -176,7 +258,7 @@ To enable Azure uploads:
    - `azure_connection_string`: Full connection string from Azure Portal (encrypted)
    - `overwrite_existing_azure_files`: Optional `true/false` switch for replacing existing blobs
 2. Ensure your template includes `object_location` column to store URLs
-3. Files will be automatically uploaded when you run Function 2
+3. Eligible files will be automatically uploaded when you run Function 2
 
 ### Azure Storage Structure
 

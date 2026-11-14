@@ -162,6 +162,10 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    import app
+    if not app.HEADLESS_ENABLED:
+        print("Headless DART is currently disabled; use the desktop application.", file=sys.stderr)
+        return 2
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="sysadmin@dg-landing")
     parser.add_argument("--queue", required=True)

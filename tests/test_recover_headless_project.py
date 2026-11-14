@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from dotenv import dotenv_values
 
+import app
 from dart_storage import Storage
 from scripts.recover_headless_project import main, recover, replacement_environment
 
@@ -24,6 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(os.name == "posix", "Recovery uses POSIX storage and locks")
 class RecoveryTests(unittest.TestCase):
     def setUp(self):
+        enabled = patch.object(app, "HEADLESS_ENABLED", True)
+        enabled.start()
+        self.addCleanup(enabled.stop)
         self.environment = patch.dict(os.environ)
         self.environment.start()
         self.temporary = tempfile.TemporaryDirectory()
@@ -91,6 +95,7 @@ class RecoveryTests(unittest.TestCase):
         self.assertIn("PREVIEW ONLY", output)
         self.assertEqual(before, self.contents())
 
+    @unittest.skipUnless(app.HEADLESS_ENABLED, "Headless CLI is disabled")
     def test_apply_configures_only_preserves_sources_and_is_repeatable(self):
         before_env, before_snapshot = self.env.read_bytes(), self.snapshot.read_bytes()
         self.args.apply = True

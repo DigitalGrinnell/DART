@@ -15,6 +15,7 @@ from unittest.mock import patch
 from PIL import Image
 
 import dart_batch
+import app
 from dart_service import JobService
 from dart_storage import LowDiskSpace, Storage
 from dart_workflows import Cancelled, Workflow, project_settings, read_csv, write_csv
@@ -25,6 +26,9 @@ ROOT = Path(__file__).resolve().parents[1]
 @unittest.skipUnless(os.name == "posix", "Managed batch operation requires POSIX")
 class BatchTests(unittest.TestCase):
     def setUp(self):
+        enabled = patch.object(app, "HEADLESS_ENABLED", True)
+        enabled.start()
+        self.addCleanup(enabled.stop)
         self.umask = os.umask(0o077)
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name).resolve()
@@ -299,6 +303,7 @@ class BatchTests(unittest.TestCase):
         generate.assert_not_called()
         self.assertEqual(["failed", "pending"], [row["state"] for row in self.summary()["collections"]])
 
+    @unittest.skipUnless(app.HEADLESS_ENABLED, "Headless CLI is disabled")
     def test_real_cli_creates_projects_and_reports_batch_exit_status(self):
         self.service.close()
         env = self.config / "dart.env"

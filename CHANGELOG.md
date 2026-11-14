@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [7.1] - 2026-11-14
+
+### Added
+- Added the archive-only file threshold, defaulting to 50 MB. Oversized media
+  are recorded in a persistent reference-only manifest instead of uploaded to
+  Azure; their originals must remain accessible and backed up.
+- Exported oversized originals retain their object IDs and use the SHOW
+  metadata-only `record` display template.
+- Added case-sensitive private filename prefixes and a separate SHOW private
+  metadata CSV for compound children; private files are excluded from public
+  exports and Azure uploads and recorded in the archive manifest.
+- Private metadata CSV names are derived from the public core CSV filename
+  using the `PRIVATE_` prefix, rather than configured separately.
+
+### Changed
+- Disabled the headless CLI, new headless job submission, desktop handoff
+  controls, and headless pipeline, acceptance, and recovery commands while
+  retaining their code and settings.
+
 ## [7.0] - 2026-11-03
 
 ### Added

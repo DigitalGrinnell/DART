@@ -690,6 +690,10 @@ def build_export_rows(template_columns, objects, compound_objects, process_ohm_d
     if 'original_file_name' not in export_columns:
         export_columns.insert(1 if 'objectid' in export_columns else 0, 'original_file_name')
 
+    if any(obj.get("archive_only") or (process_ohm_data and obj.get("display_template") == "record")
+           for obj in objects) and 'display_template' not in export_columns:
+        export_columns.append('display_template')
+
     # Ensure 'filepath' column is included (required by Function 3 for derivative generation)
     if 'filepath' not in export_columns:
         # Insert filepath after original_file_name for logical grouping

@@ -46,6 +46,10 @@ def main() -> int:
                         help="Free-space reserve on config/data filesystems (GiB, minimum 1; default 50)")
     parser.add_argument("--inputs", help="Private JSON file of explicit inputs for --configure, --job, or --batch")
     args = parser.parse_args()
+    import app
+    if not app.HEADLESS_ENABLED:
+        print("Headless DART is currently disabled; use the desktop application.", file=sys.stderr)
+        return 2
     if not math.isfinite(args.min_free_gib * 1024**3) or args.min_free_gib < 1:
         parser.error("--min-free-gib must be finite and at least 1")
     if args.apply and not args.cleanup_derivatives:

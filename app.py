@@ -5,6 +5,7 @@ logging, function management, and help documentation based on OHM's proven UI.
 """
 
 import flet as ft
+import dart_archive
 from font_size_control import FontSizeController
 from functools import partial
 import dart_handoff
@@ -56,6 +57,7 @@ def get_app_version():
         return "unknown"
 
 APP_VERSION = get_app_version()
+HEADLESS_ENABLED = False
 
 def get_dart_working_dir(working_dir: str) -> Path:
     """
@@ -160,6 +162,8 @@ DEFAULT_APP_SETTINGS = {
     "process_OHM_data": False,
     "use_working_folder_for_file_selection": False,
     "overwrite_existing_azure_files": False,
+    "archive-only-file-threshold": dart_archive.DEFAULT_THRESHOLD_MB,
+    "private_file_prefixes": "",
     "collection-id": "",
     "core_metadata_csv": "",
     "gems_metadata_csv": "",
@@ -435,15 +439,21 @@ def find_ohm_transcript_json(mp3_path: Path) -> Optional[Path]:
     return transcript_files[0] if len(transcript_files) == 1 else None
 
 
-def find_ohm_sibling_image(mp3_path: Path) -> Optional[Path]:
+def find_ohm_sibling_image(mp3_path: Path, exclude_prefixes=()) -> Optional[Path]:
     """Return the sole non-PDF image (.jpg/.jpeg/.png) beside an OHM-data MP3, if present."""
     image_extensions = {'.jpg', '.jpeg', '.png'}
     image_files = sorted(
         path for path in mp3_path.parent.iterdir()
         if path.is_file() and path.suffix.lower() in image_extensions
         and not path.name.startswith(".")
+        and not dart_archive.is_private(path, exclude_prefixes)
     )
     return image_files[0] if len(image_files) == 1 else None
+
+
+def has_private_ohm_image(mp3_path: Path, prefixes) -> bool:
+    return any(path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png"}
+               and dart_archive.is_private(path, prefixes) for path in mp3_path.parent.iterdir())
 
 
 def get_ohm_first_speaker(transcript_json_path: Optional[Path]) -> str:
@@ -570,6 +580,7 @@ def prepare_ohm_data_objects(
     collection_id: str,
     page,
     copy_transcript: Optional[Callable[[Path, Path], None]] = None,
+    private_prefixes=(),
 ) -> Tuple[list, list, int, int]:
     """Build standalone OHM transcript records and upload-only sibling records."""
     transcript_directory = Path(working_dir) / "_data" / "transcripts"
@@ -592,36 +603,40 @@ def prepare_ohm_data_objects(
             file_to_id_map[mp3_key] = mp3_id
             new_mappings += 1
 
-        transcript_key = get_stable_path(str(transcript_source))
-        transcript_id = transcript_source.stem
-        file_to_id_map[transcript_key] = transcript_id
-        reused_mappings += 1
+        transcript_private = dart_archive.is_private(transcript_source, private_prefixes)
         transcript_destination = transcript_directory / get_ohm_filename(transcript_source, collection_id)
-        if copy_transcript is None:
-            shutil.copy2(transcript_source, transcript_destination)
-        else:
-            copy_transcript(transcript_source, transcript_destination)
-
-        auxiliary_uploads.append({
-            "source": transcript_destination,
-            "azure_object_id": get_ohm_sibling_azure_stem(transcript_source, mp3_path, collection_id),
-            "azure_path_type": "transcripts",
-        })
+        if not transcript_private:
+            transcript_key = get_stable_path(str(transcript_source))
+            transcript_id = transcript_source.stem
+            file_to_id_map[transcript_key] = transcript_id
+            reused_mappings += 1
+            if copy_transcript is None:
+                shutil.copy2(transcript_source, transcript_destination)
+            else:
+                copy_transcript(transcript_source, transcript_destination)
+            auxiliary_uploads.append({
+                "source": transcript_destination,
+                "azure_object_id": get_ohm_sibling_azure_stem(transcript_source, mp3_path, collection_id),
+                "azure_path_type": "transcripts",
+            })
 
         originating_system_id = mp3_path.parent.name
         interviewee = get_ohm_interviewee(originating_system_id)
         transcript_json_source = find_ohm_transcript_json(mp3_path)
-        interviewer = get_ohm_first_speaker(transcript_json_source)
+        interviewer = get_ohm_first_speaker(
+            transcript_json_source if transcript_json_source is None
+            or not dart_archive.is_private(transcript_json_source, private_prefixes) else None
+        )
 
         objects.append({
             "objectid": mp3_id,
             "filepath": str(mp3_path),
             "filename": mp3_path.name,
-            "display_template": "transcript",
+            "display_template": "record" if transcript_private else "transcript",
             "format": "mp3",
             "parentid": None,
             "type": "transcript",
-            "object_transcript": transcript_destination.name,
+            "object_transcript": "" if transcript_private else transcript_destination.name,
             "originating_system_id": originating_system_id,
             "title": f"Oral history interview with {interviewee}" if interviewee else "",
             "interviewee": interviewee,
@@ -632,10 +647,14 @@ def prepare_ohm_data_objects(
         for sibling_path in sorted(mp3_path.parent.iterdir()):
             if not sibling_path.is_file() or sibling_path in {mp3_path, transcript_source}:
                 continue
+            if dart_archive.is_private(sibling_path, private_prefixes):
+                continue
             auxiliary_uploads.append({
                 "source": sibling_path,
                 "azure_object_id": get_ohm_sibling_azure_stem(sibling_path, mp3_path, collection_id),
                 "azure_path_type": "objs",
+                "objectid": mp3_id,
+                "title": objects[-1]["title"],
             })
 
     return objects, auxiliary_uploads, new_mappings, reused_mappings
@@ -646,6 +665,7 @@ def upload_ohm_auxiliary_files(
     auxiliary_uploads: list,
     azure_path: str,
     log_callback: Optional[Callable[[str], None]] = None,
+    threshold_mb: int = dart_archive.DEFAULT_THRESHOLD_MB,
 ) -> None:
     """Upload OHM transcript and sibling files outside the CSV export."""
     def emit(message: str) -> None:
@@ -688,6 +708,7 @@ def upload_ohm_auxiliary_files(
             source.suffix,
             progress_label=f"{index}/{total_uploads} {source.name}",
             log_callback=log_callback,
+            threshold_mb=threshold_mb,
         )
         if not uploaded:
             raise RuntimeError(message)
@@ -1436,6 +1457,7 @@ def upload_to_azure(
     access_tier: Optional[str] = None,
     progress_label: Optional[str] = None,
     log_callback: Optional[Callable[[str], None]] = None,
+    threshold_mb: int = dart_archive.DEFAULT_THRESHOLD_MB,
 ) -> Tuple[bool, str]:
     """
     Upload a file to Azure Blob Storage with renamed filename.
@@ -1453,6 +1475,8 @@ def upload_to_azure(
         local_path = Path(local_file_path)
         if not local_path.exists():
             return False, f"Local file not found: {local_file_path}"
+        if dart_archive.is_archive_only(local_path, threshold_mb):
+            return False, f"Media exceeds archive-only threshold; upload refused: {local_file_path}"
         
         # Normalize path
         normalized_path = azure_path.strip().strip('/')
@@ -1828,7 +1852,7 @@ def update_input_folder_guidance(field: ft.TextField, settings: dict) -> None:
     host = str(settings.get("headless_host", "") or "").strip()
     project = str(settings.get("headless_project_dir", "") or "").strip()
     valid, _ = dart_handoff.validate_remote_settings(host, project)
-    field.disabled = bool(host and project and valid)
+    field.disabled = bool(HEADLESS_ENABLED and host and project and valid)
     if field.disabled:
         field.label = "Inputs Folder (Not necessary for headless DART handoff)"
         field.helper_text = "Function 4 uses the server package, not this local folder."
@@ -2251,6 +2275,18 @@ def main(page: ft.Page):
             value=settings.get("overwrite_existing_azure_files", False),
             tooltip="Replace existing Azure blobs during Function 2/3 uploads",
         )
+        archive_threshold_field = ft.TextField(
+            label="Archive-Only File Threshold (MB)",
+            value=str(settings.get("archive-only-file-threshold", dart_archive.DEFAULT_THRESHOLD_MB)),
+            hint_text="Positive whole number of MB (1 MB = 1,000,000 bytes)",
+            width=320,
+        )
+        private_prefixes_field = ft.TextField(
+            label="Private Filename Prefixes",
+            value=settings.get("private_file_prefixes", ""),
+            hint_text="Case-sensitive prefixes separated by semicolons",
+            width=500,
+        )
         
         # Core Metadata CSV field with picker
         core_csv_field = ft.TextField(
@@ -2412,12 +2448,14 @@ def main(page: ft.Page):
             value=str(settings.get("headless_host", "")),
             hint_text="Optional SSH target running headless DART, e.g. sysadmin@dg-landing (key-based login required)",
             width=500,
+            disabled=not HEADLESS_ENABLED,
         )
         headless_project_dir_field = ft.TextField(
             label="Headless Project Directory",
             value=str(settings.get("headless_project_dir", "")),
             hint_text="Optional absolute server project path, e.g. /data/dart/data/projects/<collection-id>",
             width=500,
+            disabled=not HEADLESS_ENABLED,
         )
 
         def close_dialog(evt):
@@ -2431,6 +2469,12 @@ def main(page: ft.Page):
 
         def save_settings_click(evt):
             nonlocal app_settings_expanded
+            try:
+                dart_archive.threshold_bytes(archive_threshold_field.value)
+                archive_threshold = int(archive_threshold_field.value)
+            except ValueError as ex:
+                update_status(f"Error: {ex}", is_error=True)
+                return
             collection_id_valid, parsed_collection_id, collection_id_error = validate_collection_id(collection_id_field.value)
             if not collection_id_valid:
                 update_status(f"Error: {collection_id_error}", is_error=True)
@@ -2473,6 +2517,15 @@ def main(page: ft.Page):
                     page.update()
                     return
                 add_log_message(f"GEMS metadata CSV validated: {msg}")
+
+            try:
+                prefixes_value = private_prefixes_field.value or ""
+                prefixes = dart_archive.parse_private_prefixes(prefixes_value)
+                if prefixes:
+                    dart_archive.private_csv_path(core_csv_path, parsed_collection_id)
+            except ValueError as ex:
+                update_status(f"Private settings error: {ex}", is_error=True)
+                return
             
             page.update()
 
@@ -2487,7 +2540,7 @@ def main(page: ft.Page):
             headless_host_value = (headless_host_field.value or "").strip()
             headless_project_dir_value = (headless_project_dir_field.value or "").strip()
             valid, msg = dart_handoff.validate_remote_settings(headless_host_value, headless_project_dir_value)
-            if not valid:
+            if HEADLESS_ENABLED and not valid:
                 update_status(f"Headless DART setting error: {msg}", is_error=True)
                 return
 
@@ -2499,6 +2552,8 @@ def main(page: ft.Page):
                 "process_OHM_data": parsed_process_ohm_data,
                 "use_working_folder_for_file_selection": parsed_use_working_folder,
                 "overwrite_existing_azure_files": parsed_overwrite_existing_azure_files,
+                "archive-only-file-threshold": archive_threshold,
+                "private_file_prefixes": prefixes_value,
                 "collection-id": parsed_collection_id,
                 "core_metadata_csv": core_csv_path,
                 "gems_metadata_csv": gems_csv_path,
@@ -2559,6 +2614,8 @@ def main(page: ft.Page):
                         process_ohm_data_field,
                         use_working_folder_field,
                         overwrite_existing_azure_files_field,
+                        archive_threshold_field,
+                        private_prefixes_field,
                         ft.Container(height=8),
                         sized_text(
                             "Core Metadata CSV:",
@@ -2605,7 +2662,7 @@ def main(page: ft.Page):
                         azure_connection_field,
                         ft.Container(height=8),
                         sized_text(
-                            "Headless DART Handoff (optional; used by Function 4):",
+                            "Headless DART Handoff (currently disabled):",
                             size=12,
                             weight=ft.FontWeight.BOLD,
                         ),
@@ -3013,12 +3070,31 @@ def main(page: ft.Page):
             return
 
         # Load settings and check for CSV template
-        settings, _ = load_app_settings(working_dir)
+        settings, settings_error = load_app_settings(working_dir)
+        if settings_error:
+            update_status(settings_error, is_error=True)
+            return
+        threshold_mb = settings.get("archive-only-file-threshold", dart_archive.DEFAULT_THRESHOLD_MB)
+        try:
+            dart_archive.threshold_bytes(threshold_mb)
+        except ValueError as ex:
+            update_status(f"Error: {ex}", is_error=True)
+            return
         csv_template_path = settings.get("core_metadata_csv", "")
         
         if not csv_template_path or not Path(csv_template_path).exists():
             update_status("Error: Core metadata CSV not configured in settings", is_error=True)
             add_log_message("[ERROR] No core metadata CSV found - configure in App Settings")
+            return
+        try:
+            private_prefixes = dart_archive.parse_private_prefixes(settings.get("private_file_prefixes", ""))
+            private_csv = (
+                dart_archive.private_csv_path(csv_template_path, settings.get("collection-id", ""))
+                if private_prefixes else None
+            )
+        except ValueError as ex:
+            update_status(f"Private settings error: {ex}", is_error=True)
+            add_log_message(f"[ERROR] Private settings error: {ex}")
             return
 
         # Load CSV template to get column structure
@@ -3026,6 +3102,8 @@ def main(page: ft.Page):
             with open(csv_template_path, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 template_columns = reader.fieldnames
+                core_rows_by_id = {row["objectid"]: row for row in reader if row.get("objectid")}
+                core_titles = {objectid: row.get("title", "") for objectid, row in core_rows_by_id.items()}
                 add_log_message(f"[DEBUG] Loaded CSV template with {len(template_columns)} columns")
                 logger.info(f"CSV template columns: {template_columns}")
         except Exception as ex:
@@ -3082,6 +3160,7 @@ def main(page: ft.Page):
         }
 
         files = []
+        private_ohm_files = []
         selected_files = []
         current_directory = None
         if process_ohm_data:
@@ -3090,14 +3169,20 @@ def main(page: ft.Page):
                 return
 
             ohm_files, ohm_data_directory = find_ohm_data_mp3_files(current_directory)
-            files = [str(file_path) for file_path in ohm_files]
+            files = [str(file_path) for file_path in ohm_files if not dart_archive.is_private(file_path, private_prefixes)]
+            private_ohm_files = sorted({
+                path for mp3 in ohm_files for path in mp3.parent.iterdir()
+                if path.is_file() and not path.name.startswith(".")
+                and dart_archive.is_private(path, private_prefixes)
+            })
             add_log_message(f"[DEBUG] OHM-data mode: exporting MP3 files from {ohm_data_directory}")
         else:
             selected_files = get_selected_files()
 
         if not process_ohm_data and selected_files:
             for file_path in selected_files:
-                if file_path.is_file() and file_path.suffix.lower() in asset_extensions:
+                if file_path.is_file() and (file_path.suffix.lower() in asset_extensions
+                                            or dart_archive.is_private(file_path, private_prefixes)):
                     files.append(str(file_path))
         elif not process_ohm_data:
             current_directory = get_inputs_folder()
@@ -3106,14 +3191,15 @@ def main(page: ft.Page):
             
             # Recursive scan: includes per-compound subfolders (one compound per folder)
             for file_path in current_directory.rglob("*"):
-                if (file_path.is_file() and file_path.suffix.lower() in asset_extensions
+                if (file_path.is_file() and (file_path.suffix.lower() in asset_extensions
+                                             or dart_archive.is_private(file_path, private_prefixes))
                         and not is_hidden_path(file_path, current_directory)):
                     files.append(str(file_path))
         source_directory_root = current_directory if (
             group_by_source_directory and not process_ohm_data and not selected_files
         ) else None
 
-        if not files:
+        if not files and not private_ohm_files:
             message = "Error: No OHM-data MP3 files found to export" if process_ohm_data else "Error: No digital asset files found to export"
             update_status(message, is_error=True)
             return
@@ -3142,6 +3228,7 @@ def main(page: ft.Page):
                     file_to_id_map,
                     collection_id,
                     page,
+                    private_prefixes=private_prefixes,
                 )
             except (OSError, ValueError) as ex:
                 update_status(f"Error preparing OHM-data objects: {ex}", is_error=True)
@@ -3151,6 +3238,24 @@ def main(page: ft.Page):
                 f"[INFO] OHM-data mode: created {len(objects)} standalone transcript records and "
                 f"{len(ohm_auxiliary_uploads)} cold auxiliary uploads"
             )
+            used_ids = set(file_to_id_map.values()) | {obj["objectid"] for obj in objects}
+            parents_by_directory = {Path(obj["filepath"]).parent: obj["objectid"] for obj in objects}
+            for path in private_ohm_files:
+                stable_path = get_stable_path(str(path))
+                unique_id = file_to_id_map.get(stable_path)
+                if not unique_id:
+                    unique_id = get_filename_dg_id(path, collection_id)
+                    if not unique_id or unique_id in used_ids:
+                        unique_id = generate_unique_id(page, collection_id)
+                        while unique_id in used_ids:
+                            unique_id = generate_unique_id(page, collection_id)
+                    file_to_id_map[stable_path] = unique_id
+                used_ids.add(unique_id)
+                objects.append({
+                    "objectid": unique_id, "filepath": str(path), "filename": path.name,
+                    "display_template": "record", "format": path.suffix.lower().lstrip("."),
+                    "parentid": parents_by_directory.get(path.parent),
+                })
         else:
             for file_path_str in files:
                 stable_path = get_stable_path(file_path_str)
@@ -3202,6 +3307,46 @@ def main(page: ft.Page):
         new_mappings += compound_new
         reused_mappings += compound_reused
 
+        if private_prefixes:
+            all_ids = [obj["objectid"] for obj in objects] + [parent["objectid"] for parent in compound_objects]
+            if len(all_ids) != len(set(all_ids)):
+                update_status("Duplicate object IDs detected; review existing mappings before export", is_error=True)
+                return
+        objects, private_objects, compound_objects = dart_archive.split_private_objects(
+            objects, compound_objects, private_prefixes
+        )
+        if any(not obj.get("parentid") for obj in private_objects):
+            update_status("Private files must be compound children; check grouping and parent files.", is_error=True)
+            add_log_message("[ERROR] Private files without compound parents cannot be exported.")
+            return
+
+        # Save identifiers before writing archive references or starting network work.
+        settings["file_to_id_map"] = file_to_id_map
+        ok, save_result = save_app_settings(working_dir, settings)
+        if not ok:
+            update_status(save_result, is_error=True)
+            add_log_message(f"[ERROR] {save_result}")
+            return
+        try:
+            archive_entries, archive_paths, retained_auxiliary = dart_archive.classify_sources(
+                objects, ohm_auxiliary_uploads, threshold_mb, core_titles
+            )
+            archive_entries.extend({
+                "path": obj["filepath"], "objectid": obj["objectid"],
+                "new_filename": obj["objectid"] + Path(obj["filepath"]).suffix,
+                "title": obj.get("title") or core_titles.get(obj["objectid"], ""),
+            } for obj in private_objects)
+            dart_archive.record_archive_files(
+                get_dart_working_dir(working_dir), archive_entries, collection_id, APP_VERSION
+            )
+            ohm_auxiliary_uploads = retained_auxiliary
+            if archive_entries:
+                add_log_message(f"[WARN] {len(archive_entries)} archive-only media references recorded; keep originals accessible until preservation ingest.")
+        except (OSError, ValueError, KeyError) as ex:
+            update_status(f"Archive-only manifest failed: {ex}", is_error=True)
+            add_log_message(f"[ERROR] Archive-only manifest failed: {ex}")
+            return
+
         # Build object_location URLs and upload files to Azure if enabled
         upload_success_count = 0
         upload_skip_count = 0
@@ -3249,6 +3394,19 @@ def main(page: ft.Page):
                     azure_object_id = obj.get('azure_object_id', object_id)
                     file_path = obj['filepath']
                     file_extension = Path(file_path).suffix
+                    if str(Path(file_path)) in archive_paths:
+                        obj["object_location"] = ""
+                        add_log_message(f"  [INFO] Archive-only; not uploaded: {file_path}")
+                        continue
+                    try:
+                        if dart_archive.is_archive_only(file_path, threshold_mb):
+                            update_status(f"Source grew beyond archive-only threshold; rerun export: {file_path}", is_error=True)
+                            add_log_message(f"[ERROR] Source grew beyond archive-only threshold; rerun export: {file_path}")
+                            return
+                    except OSError as ex:
+                        update_status(f"Could not inspect source {file_path}: {ex}", is_error=True)
+                        add_log_message(f"[ERROR] Could not inspect source {file_path}: {ex}")
+                        return
                     
                     # Build object_location URL
                     success, url, msg = build_object_location(
@@ -3303,6 +3461,7 @@ def main(page: ft.Page):
                             file_extension,
                             progress_label=obj['filename'],
                             log_callback=add_log_message,
+                            threshold_mb=threshold_mb,
                         )
                         
                         if upload_success:
@@ -3313,6 +3472,9 @@ def main(page: ft.Page):
                             upload_error_paths.append(file_path)
                             logger.error(f"Upload failed: {upload_msg}")
                             add_log_message(f"[ERROR] {upload_msg}")
+                            if "Media exceeds archive-only threshold; upload refused:" in upload_msg:
+                                update_status(f"{upload_msg}; rerun export to record it", is_error=True)
+                                return
                             # Still include object_location in CSV even if upload failed
                     else:
                         obj['object_location'] = ''
@@ -3341,6 +3503,23 @@ def main(page: ft.Page):
         update_status(f"Writing {total_rows_to_write} rows to metadata CSV...")
         add_log_message(f"[INFO] Writing {total_rows_to_write} rows ({len(export_columns)} columns) to {csv_filename}...")
         try:
+            if private_objects:
+                private_template_columns = list(template_columns)
+                for column in ("objectid", "parentid", "title"):
+                    if column not in private_template_columns:
+                        private_template_columns.append(column)
+                private_columns, private_rows = build_export_rows(
+                    private_template_columns, private_objects, [], process_ohm_data
+                )
+                protected = GEMS_BACKFILL_PROTECTED_COLUMNS | {"object_transcript", "transcript"}
+                for row in private_rows:
+                    prior = core_rows_by_id.get(row["objectid"], {})
+                    for column in private_columns:
+                        if column not in protected and not row.get(column) and prior.get(column):
+                            row[column] = prior[column]
+                private_csv = dart_archive.private_csv_path(csv_template_path, collection_id)
+                dart_archive.write_private_csv(private_csv, private_columns, private_rows)
+                add_log_message(f"[INFO] Wrote {len(private_rows)} private records to {private_csv}")
             with open(csv_output_path, 'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=export_columns)
                 writer.writeheader()
@@ -3356,10 +3535,12 @@ def main(page: ft.Page):
                         "file uploads (transcripts and sibling files)..."
                     )
                 try:
-                    upload_ohm_auxiliary_files(blob_service_client, ohm_auxiliary_uploads, azure_path, log_callback=add_log_message)
+                    upload_ohm_auxiliary_files(blob_service_client, ohm_auxiliary_uploads, azure_path, log_callback=add_log_message, threshold_mb=threshold_mb)
                 except (OSError, RuntimeError) as ex:
                     add_log_message(f"[ERROR] OHM auxiliary upload failed after CSV export: {ex}")
                     update_status("CSV exported, but an OHM auxiliary upload failed", is_error=True)
+                    if "Media exceeds archive-only threshold; upload refused:" in str(ex):
+                        return
             
             parent_count = len(compound_objects)
             add_log_message(f"[SUCCESS] Exported {len(objects) + parent_count} objects to {csv_filename}")
@@ -3492,7 +3673,17 @@ def main(page: ft.Page):
             return
 
         # Load settings
-        settings, _ = load_app_settings(working_dir)
+        settings, settings_error = load_app_settings(working_dir)
+        if settings_error:
+            update_status(settings_error, is_error=True)
+            return
+        threshold_mb = settings.get("archive-only-file-threshold", dart_archive.DEFAULT_THRESHOLD_MB)
+        try:
+            dart_archive.threshold_bytes(threshold_mb)
+            private_prefixes = dart_archive.parse_private_prefixes(settings.get("private_file_prefixes", ""))
+        except ValueError as ex:
+            update_status(f"Error: {ex}", is_error=True)
+            return
         process_ohm_data = settings.get("process_OHM_data", False)
         overwrite_existing_azure_files = bool(settings.get("overwrite_existing_azure_files", False))
         
@@ -3546,6 +3737,10 @@ def main(page: ft.Page):
                 rows = list(reader)
         except Exception as ex:
             update_status(f"Error reading CSV: {ex}", is_error=True)
+            return
+        if any(dart_archive.is_private_csv_filename(get_csv_filename_value(row), private_prefixes)
+               for row in rows):
+            update_status("Private files are present in this older export; run Function 2 again before generating derivatives.", is_error=True)
             return
         
         # Add image_small and image_thumb columns if not present
@@ -3615,7 +3810,7 @@ def main(page: ft.Page):
             elif process_ohm_data:
                 # OHM rows are the MP3 itself; look for a sibling image instead
                 mp3_path = Path(row.get('filepath', ''))
-                if mp3_path.is_file() and find_ohm_sibling_image(mp3_path):
+                if mp3_path.is_file() and find_ohm_sibling_image(mp3_path, private_prefixes):
                     processable += 1
                 else:
                     non_image += 1
@@ -3681,7 +3876,12 @@ def main(page: ft.Page):
             
             if process_ohm_data:
                 # Generate derivatives from a sibling image beside the MP3, not the MP3 itself
-                sibling_image_path = find_ohm_sibling_image(source_path)
+                if has_private_ohm_image(source_path, private_prefixes):
+                    row["image_small"] = row["image_thumb"] = ""
+                    add_log_message(f"[SKIP #{idx+1}] Private sibling image; derivatives not reused or generated for {filename}")
+                    skipped_count += 1
+                    continue
+                sibling_image_path = find_ohm_sibling_image(source_path, private_prefixes)
                 if not sibling_image_path:
                     add_log_message(f"[SKIP #{idx+1}] No sibling image (.jpg/.png) found beside {filename}")
                     skipped_count += 1
@@ -3772,7 +3972,8 @@ def main(page: ft.Page):
                     str(small_local_path),
                     smalls_azure_path,
                     objectid + "_SMALL",
-                    ".jpg"
+                    ".jpg",
+                    threshold_mb=threshold_mb,
                 )
                 
                 if upload_success:
@@ -3818,7 +4019,8 @@ def main(page: ft.Page):
                     str(thumb_local_path),
                     thumbs_azure_path,
                     objectid + "_TN",
-                    ".jpg"
+                    ".jpg",
+                    threshold_mb=threshold_mb,
                 )
                 
                 if upload_success:
@@ -4008,6 +4210,11 @@ def main(page: ft.Page):
         # Load settings to get core metadata CSV
         settings, _ = load_app_settings(working_dir)
         core_csv_path = settings.get("core_metadata_csv", "")
+        try:
+            private_prefixes = dart_archive.parse_private_prefixes(settings.get("private_file_prefixes", ""))
+        except ValueError as ex:
+            update_status(f"Private settings error: {ex}", is_error=True)
+            return
         
         if not core_csv_path or not core_csv_path.strip():
             update_status("Error: Core metadata CSV not configured in settings", is_error=True)
@@ -4037,7 +4244,7 @@ def main(page: ft.Page):
 
         headless_host = (settings.get("headless_host", "") or "").strip()
         headless_project_dir = (settings.get("headless_project_dir", "") or "").strip()
-        headless_configured = bool(headless_host and headless_project_dir)
+        headless_configured = bool(HEADLESS_ENABLED and headless_host and headless_project_dir)
         collection_id = settings.get("collection-id", "")
 
         def run_in_background(work, done):
@@ -4538,6 +4745,18 @@ def main(page: ft.Page):
             comparison_context.clear()
             comparison_context["source_csv_name"] = Path(selected_new_csv).name
             try:
+                for candidate in (old_csv, Path(selected_new_csv)):
+                    with candidate.open(encoding="utf-8-sig", newline="") as stream:
+                        reader = csv.DictReader(stream)
+                        if any(dart_archive.is_private_csv_filename(
+                            get_csv_filename_value(row), private_prefixes
+                        ) for row in reader):
+                            update_status(
+                                f"Private filenames are present in {candidate.name}; review and remove them before merging.",
+                                is_error=True,
+                            )
+                            add_log_message(f"[ERROR] Private filenames found in {candidate}; merge blocked.")
+                            return
                 if gems_backfill_checkbox.value and gems_csv_available:
                     add_log_message(f"[INFO] GEMS backfill: {Path(selected_new_csv).name} ← {gems_csv_path}")
                     update_status("Backfilling DART export from GEMS metadata CSV...")
@@ -5615,7 +5834,7 @@ Detailed results: {output_diff.name}
             ]
         else:
             headless_controls = [sized_text(
-                "Headless DART handoff off: set headless_host and headless_project_dir in App Settings.",
+                "Headless DART handoff is currently disabled.",
                 size=11, italic=True, color=ft.Colors.GREY_700,
             )]
         

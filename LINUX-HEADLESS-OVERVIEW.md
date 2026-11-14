@@ -1,5 +1,11 @@
 # DART on Linux: Headless Operating Overview
 
+> **Disabled in DART 7.1:** The headless CLI and new job submission are
+> disabled, as are desktop handoff controls and the headless batch acceptance,
+> pipeline, and recovery command entry points. This document describes the
+> earlier workflow. Updating this checkout does not stop or change an
+> independently installed or already-running remote instance.
+
 **Headless DART prepares data on dg-landing. Desktop DART reviews and merges.**
 
 Headless DART on `dg-landing` has no browser or web interface. It analyzes
@@ -114,6 +120,7 @@ accepts SSH options in either field.
      "core_metadata_csv": "/data/dart/data/projects/REPLACE-COLLECTION/core-snapshot.csv",
      "gems_metadata_csv": "",
      "azure_blob_storage_path": "",
+     "archive-only-file-threshold": 50,
      "group_compound_objects": true,
      "create_multiple_objects": false,
      "process_OHM_data": false
@@ -132,6 +139,13 @@ durable IDs, headless DART refuses to change its collection ID. Set
 `gems_metadata_csv` to an approved readable GEMS CSV path to enable server-side
 GEMS backfill. Source paths must be actual Linux mount paths; Mac volume names
 are never translated.
+
+`archive-only-file-threshold` is an optional positive whole number of decimal
+MB, default 50. Headless exports record oversized media in the server project's
+`.DART-working-directory/DART_archive_only.json` and do not upload them to
+Azure. This is a reference-only manifest, not a backup or an Archivematica
+ingest, and it is not pulled in the desktop handoff. Preserve the originals at
+their recorded Linux paths; see [Function 2](FUNCTION_2_EXPORT_CSV.md#archive-only-media).
 
 Push a fresh core snapshot whenever the desktop core changes materially,
 especially after a merge, so new jobs reuse the latest IDs.

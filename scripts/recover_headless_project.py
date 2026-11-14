@@ -204,6 +204,11 @@ def main() -> int:
     parser.add_argument("--source-mount", required=True, help="Verified Linux mount point")
     parser.add_argument("--apply", action="store_true", help="Back up env, approve source, configure only")
     args = parser.parse_args()
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] if args.host else Path(args.repo).resolve()))
+    import app
+    if not app.HEADLESS_ENABLED:
+        print("Headless DART is currently disabled; use the desktop application.", file=sys.stderr)
+        return 2
     if not re.fullmatch(r"[a-z0-9_-]+", args.collection_id) or args.collection_id == "collection-template":
         parser.error("Use a valid, non-reserved collection ID.")
     try:

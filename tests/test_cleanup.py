@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
+import app
 from dart_cleanup import cleanup_derivatives
 from dart_service import JobService
 from dart_storage import Storage, atomic_json
@@ -22,6 +23,9 @@ from dart_workflows import digest, project_settings, read_csv, write_csv
 @unittest.skipUnless(os.name == "posix", "Managed cleanup requires POSIX")
 class CleanupTests(unittest.TestCase):
     def setUp(self):
+        enabled = patch.object(app, "HEADLESS_ENABLED", True)
+        enabled.start()
+        self.addCleanup(enabled.stop)
         self.umask = os.umask(0o077)
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name).resolve()
@@ -247,6 +251,7 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(1, len(retried["files"]))
         self.assertFalse(last.exists())
 
+    @unittest.skipUnless(app.HEADLESS_ENABLED, "Headless CLI is disabled")
     def test_cleanup_cli_requires_no_job_inputs_and_rejects_apply_for_other_modes(self):
         self.service.close()
         env = self.config / "dart.env"

@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any, Callable
 
 import app as core
+import dart_archive
 from dart_handoff import (HANDOFF_DIR_NAME, MANIFEST_NAME, PACKAGE_CSV_NAME, build_manifest, find_id_conflicts,
                           has_server_local_derivatives)
 from dart_processing import (analyze_compound_objects, build_export_rows, get_derivative_azure_paths,
@@ -22,7 +23,8 @@ from dart_storage import Storage, atomic_bytes, atomic_json, private
 
 KINDS = {"analyze", "export", "derivatives", "handoff", "prepare"}
 FLAGS = ("group_compound_objects", "create_multiple_objects", "process_OHM_data")
-FORM_FIELDS = ("input_dir", "core_metadata_csv", "gems_metadata_csv", "collection-id", "azure_blob_storage_path")
+FORM_FIELDS = ("input_dir", "core_metadata_csv", "gems_metadata_csv", "collection-id", "azure_blob_storage_path",
+               "archive-only-file-threshold")
 ASSETS = core.GEMS_ASSET_EXTENSIONS
 
 
@@ -71,6 +73,7 @@ def project_settings(storage: Storage, working: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"Invalid project settings object: {path}")
     settings = dict(core.DEFAULT_APP_SETTINGS, **value)
+    dart_archive.threshold_bytes(settings["archive-only-file-threshold"])
     mappings = settings["file_to_id_map"]
     if not isinstance(mappings, dict) or not all(isinstance(k, str) and isinstance(v, str) and v
                                                for k, v in mappings.items()):
@@ -108,6 +111,9 @@ def save_settings(storage: Storage, working: str, values: dict[str, Any]) -> dic
         valid, error = core.validate_azure_path(azure)
         if not valid or "?" in azure:
             raise ValueError(error or "Use an Azure container/path, never a signed URL.")
+    threshold = values.get("archive-only-file-threshold", settings["archive-only-file-threshold"])
+    dart_archive.threshold_bytes(threshold)
+    settings["archive-only-file-threshold"] = int(threshold)
     for key in FLAGS:
         if not isinstance(values.get(key), bool):
             raise ValueError(f"{key} must be a boolean.")
@@ -278,18 +284,30 @@ class Workflow:
             self.settings["file_to_id_map"] = mappings
             self.checkpoint()
             atomic_json(self.hidden / core.APP_SETTINGS_FILENAME, self.settings)
+        threshold = self.settings["archive-only-file-threshold"]
+        core_titles = {row["objectid"]: row.get("title", "") for row in existing}
+        archive_entries, archive_paths, retained_auxiliary = dart_archive.classify_sources(
+            objects, auxiliary, threshold, core_titles
+        )
+        self.checkpoint()
+        dart_archive.record_archive_files(self.hidden, archive_entries, collection, core.APP_VERSION)
+        if archive_entries:
+            self.report(f"{len(archive_entries)} archive-only media references recorded; keep originals accessible until preservation ingest.", None)
         client = self.azure(inputs)
         uploaded = skipped = 0
         if client is not None:
             for index, obj in enumerate(objects):
                 self.checkpoint()
+                if str(Path(obj["filepath"])) in archive_paths:
+                    obj["object_location"] = ""
+                    continue
                 obj["object_location"], did_upload = self.upload(
                     client, Path(obj["filepath"]), self.settings["azure_blob_storage_path"],
                     obj["objectid"], inputs["overwrite"])
                 uploaded += int(did_upload)
                 skipped += int(not did_upload)
                 self.report(f"Original uploads: {index + 1}/{len(objects)}", 0.3 + 0.5 * (index + 1) / len(objects))
-            for obj in auxiliary:
+            for obj in retained_auxiliary:
                 self.checkpoint()
                 destination = self.settings["azure_blob_storage_path"]
                 if obj["azure_path_type"] == "transcripts":
@@ -321,6 +339,8 @@ class Workflow:
             connection, connection_timeout=10, read_timeout=30, retry_total=2)
 
     def upload(self, client, source: Path, destination: str, object_id: str, overwrite: bool) -> tuple[str, bool]:
+        if dart_archive.is_archive_only(source, self.settings["archive-only-file-threshold"]):
+            raise ValueError(f"Media exceeds archive-only threshold; upload refused: {source}")
         if "/" in object_id or "\\" in object_id or object_id in {".", ".."}:
             raise ValueError("Object IDs cannot contain path separators.")
         parts = destination.strip("/").split("/", 1)
