@@ -195,7 +195,11 @@ from the public export and Azure uploads regardless of size. Their durable
 references are added to the archive-only manifest. Private children must have
 a compound parent; an ungrouped private file stops the export. Private-only
 compounds do not produce public parent rows. For mixed compounds, public
-parent filenames are based on a public child. In OHM mode, a private sibling
+parent filenames, including nested `multiple` parents, are based on a public
+descendant, never a private child. Existing core CSV rows are not rewritten;
+review any older parent filename separately before merging. Function 4 matches
+rows by `original_file_name`, so a newly named parent may appear as a new
+record even when its `objectid` already exists. In OHM mode, a private sibling
 is associated with the public MP3; a private transcript is not copied or
 uploaded, and the MP3 uses the metadata-only `record` layout.
 
@@ -209,8 +213,8 @@ before storing sensitive information there.
 
 Existing public metadata, Azure blobs, published copies, and earlier copied
 transcripts are **not removed**. Review and remove them through an approved
-separate process. Function 4 blocks a merge if the core CSV or selected export
-still names private files. A manifest entry is only a reference; it does not
+separate process. Function 4 warns but permits a merge if the core CSV or
+selected export still names private files. A manifest entry is only a reference; it does not
 copy the file or ingest it into Archivematica.
 
 ### Upload Workflow

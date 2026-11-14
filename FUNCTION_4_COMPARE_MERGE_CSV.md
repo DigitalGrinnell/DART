@@ -3,11 +3,12 @@
 ## Purpose
 Compare two CSV files to identify matching records, new records, changed values, and records missing from the new file. Uses the csvdiff tool for fast, accurate comparison with detailed change tracking. This function automatically uses your core metadata CSV (from settings) as the baseline and auto-selects the newest DART_export CSV from your working directory for comparison.
 
-When private filename prefixes are configured, Function 4 blocks comparison
-if either the core CSV or selected export contains a matching filename,
-including an underscore-prefixed compound parent. Review and remove existing
-public records separately before merging; DART does not remove published
-metadata or Azure blobs automatically.
+When private filename prefixes are configured, Function 4 warns if either the
+core CSV or selected export contains a matching filename, including an
+underscore-prefixed compound parent. The warning identifies matching rows and
+does not block comparison or merging. Review the rows before publishing;
+removing a private child may leave a compound parent named after it. DART does
+not remove published metadata or Azure blobs automatically.
 
 ## Reviewing Headless DART Handoff Packages
 

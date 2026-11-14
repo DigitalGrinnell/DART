@@ -185,6 +185,29 @@ class DesktopInputsTests(unittest.TestCase):
         azure.assert_not_called()
         self.assertFalse((self.root / ".DART-working-directory").exists())
 
+    def test_private_first_child_never_names_compound_or_nested_parent(self):
+        private_csv = self.use_show_core()
+        directory = self.inputs / "first"
+        (directory / "first.jpg").unlink()
+        for name in ("scan_001.jpg", "scan_002.jpg", "scan_003.jpg"):
+            (directory / name).write_bytes(b"fixture")
+        self.settings.update({"private_file_prefixes": "scan_001", "create_multiple_objects": True})
+        page = self.start_page()
+        self.execute(page, "function_2_export_csv")
+
+        export = next((self.root / ".DART-working-directory").glob("DART_export_*.csv"))
+        with export.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        multiple = next(row for row in rows if row["type"] == "multiple")
+        compound = next(row for row in rows if row["objectid"] == multiple["parentid"])
+        self.assertEqual("_scan_002.jpg", compound["original_file_name"])
+        self.assertEqual("_scan_002.jpg", multiple["original_file_name"])
+        with private_csv.open(newline="") as stream:
+            private = list(csv.DictReader(stream))
+        self.assertEqual(("scan_001.jpg", multiple["objectid"]),
+                         (private[0]["original_file_name"], private[0]["parentid"]))
+        self.assertNotIn("scan_001.jpg", str(rows))
+
     def test_ohm_private_transcript_and_image_are_not_public(self):
         directory = self.inputs / "OHM-data" / "Person_dg_123"
         directory.mkdir(parents=True)
@@ -233,22 +256,28 @@ class DesktopInputsTests(unittest.TestCase):
         self.execute(page, "function_2_export_csv")
         self.assertFalse(list((self.root / ".DART-working-directory").glob("DART_export_*.csv")))
 
-    def test_merge_blocks_existing_private_records(self):
+    def test_private_filename_warning_allows_review_and_merge(self):
         self.core.write_text("objectid,original_file_name,parentid,title,type,filepath\n"
                              "id,_PRIVATE-file.jpg,,,,\n")
         work = self.root / ".DART-working-directory"
         work.mkdir()
         (work / "DART_export_20200101_000000.csv").write_text(
-            "objectid,original_file_name,parentid,title,type,filepath\nid,public.jpg,,,,\n"
+            "objectid,original_file_name,parentid,title,type,filepath\n"
+            "new,PRIVATE-child.jpg,id,Title,child,\n"
         )
         self.settings["private_file_prefixes"] = "PRIVATE-"
         page = self.start_page()
-        with patch.object(app, "compare_metadata_rows") as compare:
-            self.execute(page, "function_4_compare_merge")
-            button = next(action for action in page.overlay[-1].actions if action.text == "Use Newest")
-            button.on_click(None)
-        compare.assert_not_called()
+        self.execute(page, "function_4_compare_merge")
+        next(action for action in page.overlay[-1].actions if action.text == "Use Newest").on_click(None)
+        texts = [control.value for control in self.walk([page.overlay[-1]])
+                 if isinstance(control, app.ft.Text)]
+        self.assertTrue(any("core.csv" in text and "_PRIVATE-file.jpg" in text for text in texts if text))
+        self.assertTrue(any("DART_export_20200101_000000.csv" in text and "PRIVATE-child.jpg" in text
+                            for text in texts if text))
+        for label in ("Review & Merge Changes", "Merge Selected Changes", "Merge Changes"):
+            next(action for action in page.overlay[-1].actions if action.text == label).on_click(None)
         self.assertIn("_PRIVATE-file.jpg", self.core.read_text())
+        self.assertIn("PRIVATE-child.jpg", self.core.read_text())
 
     def test_private_csv_write_failure_does_not_publish_export(self):
         (self.inputs / "first" / "PRIVATE-file.pdf").write_bytes(b"private")

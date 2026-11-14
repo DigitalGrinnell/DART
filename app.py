@@ -4745,18 +4745,19 @@ def main(page: ft.Page):
             comparison_context.clear()
             comparison_context["source_csv_name"] = Path(selected_new_csv).name
             try:
+                private_warnings = []
                 for candidate in (old_csv, Path(selected_new_csv)):
                     with candidate.open(encoding="utf-8-sig", newline="") as stream:
                         reader = csv.DictReader(stream)
-                        if any(dart_archive.is_private_csv_filename(
-                            get_csv_filename_value(row), private_prefixes
-                        ) for row in reader):
-                            update_status(
-                                f"Private filenames are present in {candidate.name}; review and remove them before merging.",
-                                is_error=True,
-                            )
-                            add_log_message(f"[ERROR] Private filenames found in {candidate}; merge blocked.")
-                            return
+                        names = [name for row in reader
+                                 if dart_archive.is_private_csv_filename(
+                                     name := get_csv_filename_value(row), private_prefixes)]
+                    if names:
+                        preview = ", ".join(names[:3]) + (" ..." if len(names) > 3 else "")
+                        warning = (f"Private filename warning in {candidate.name}: {len(names)} matching row(s): "
+                                   f"{preview}. Review before publishing; compound parent names can also match.")
+                        private_warnings.append(warning)
+                        add_log_message(f"[WARN] {warning}")
                 if gems_backfill_checkbox.value and gems_csv_available:
                     add_log_message(f"[INFO] GEMS backfill: {Path(selected_new_csv).name} ← {gems_csv_path}")
                     update_status("Backfilling DART export from GEMS metadata CSV...")
@@ -4859,6 +4860,9 @@ New CSV: {Path(selected_new_csv).name}
 Column handling:
 {chr(10).join(schema_notes) or 'Both files have the same metadata columns.'}
 
+Privacy warnings:
+{chr(10).join(private_warnings) or 'None.'}
+
 Results:
   • {added} new records (in new file only)
   • {removed} missing in new (in core file only)
@@ -4948,7 +4952,7 @@ Detailed results: {output_diff.name}
                             # Build color-coded view
                             view_rows = [
                                 sized_text(note, size=11, color=ft.Colors.ORANGE_800, selectable=True)
-                                for note in schema_notes
+                                for note in private_warnings + schema_notes
                             ]
                             
                             # Create field order based on new CSV columns (for consistent display)
@@ -5759,6 +5763,8 @@ Detailed results: {output_diff.name}
                                 sized_text(f"Core CSV: {old_csv.name}", size=11),
                                 sized_text(f"New CSV: {Path(selected_new_csv).name}", size=11),
                                 *[sized_text(note, size=11, color=ft.Colors.ORANGE_800, selectable=True)
+                                  for note in private_warnings],
+                                *[sized_text(note, size=11, color=ft.Colors.ORANGE_800, selectable=True)
                                   for note in schema_notes],
                                 sized_text(""),
                                 sized_text("Results:", weight=ft.FontWeight.BOLD),
@@ -5772,7 +5778,7 @@ Detailed results: {output_diff.name}
                                 sized_text(f"  • {output_summary.name} (summary)", size=11),
                             ], spacing=4, scroll=ft.ScrollMode.AUTO),
                             width=600,
-                            height=(300 + (120 if missing_metadata_banner else 0)
+                            height=(300 + (70 if private_warnings else 0) + (120 if missing_metadata_banner else 0)
                                     + (100 if gems_backfill_stats else 0)),
                         ),
                         actions=[
@@ -5786,6 +5792,7 @@ Detailed results: {output_diff.name}
                     page.update()
                     
                     update_status(f"csvdiff comparison complete: {added} new, {changed} changed, {removed} missing"
+                                  + (" — ⚠️ private filenames need review" if private_warnings else "")
                                   + (f" — ⚠️ {bare_added_count} new record(s) have no metadata" if warn_missing_metadata else ""),
                                   is_error=warn_missing_metadata)
                     return
