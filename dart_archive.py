@@ -115,7 +115,7 @@ def is_archive_only(path, threshold):
     return is_media and path.stat().st_size > threshold_bytes(threshold)
 
 
-def classify_sources(objects, auxiliary, threshold, core_titles):
+def classify_sources(objects, auxiliary, threshold):
     entries = []
     archive_paths = set()
     for obj in objects:
@@ -127,7 +127,7 @@ def classify_sources(objects, auxiliary, threshold, core_titles):
             entries.append({
                 "path": path, "objectid": obj["objectid"],
                 "new_filename": obj.get("azure_object_id", obj["objectid"]) + path.suffix,
-                "title": obj.get("title") or core_titles.get(obj["objectid"], ""),
+                "status": f"larger than {threshold} MB threshold",
             })
     retained = []
     for obj in auxiliary:
@@ -136,7 +136,7 @@ def classify_sources(objects, auxiliary, threshold, core_titles):
             entries.append({
                 "path": path, "objectid": obj["objectid"],
                 "new_filename": obj["azure_object_id"] + path.suffix,
-                "title": obj.get("title", ""),
+                "status": f"larger than {threshold} MB threshold",
             })
         else:
             retained.append(obj)
@@ -181,7 +181,7 @@ def record_archive_files(directory, entries, collection_id, version):
             "original_path": original_path,
             "objectid": entry["objectid"],
             "new_filename": entry["new_filename"],
-            "title": entry.get("title", ""),
+            "status": entry["status"],
             "file_size_bytes": size,
             "username": getpass.getuser(),
             "dart_version": version,

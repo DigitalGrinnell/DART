@@ -285,9 +285,8 @@ class Workflow:
             self.checkpoint()
             atomic_json(self.hidden / core.APP_SETTINGS_FILENAME, self.settings)
         threshold = self.settings["archive-only-file-threshold"]
-        core_titles = {row["objectid"]: row.get("title", "") for row in existing}
         archive_entries, archive_paths, retained_auxiliary = dart_archive.classify_sources(
-            objects, auxiliary, threshold, core_titles
+            objects, auxiliary, threshold
         )
         self.checkpoint()
         dart_archive.record_archive_files(self.hidden, archive_entries, collection, core.APP_VERSION)

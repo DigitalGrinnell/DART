@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Function 4 now warns about matching private filenames instead of blocking
   comparison and merge, and identifies matching rows for review.
 
+## [7.2] - 2026-11-16
+
+### Changed
+- Archive-only manifests now use a `status` field instead of `title`, marking
+  private files as `private` and oversized media by its configured threshold.
+
 ## [7.1] - 2026-11-14
 
 ### Added

@@ -116,6 +116,8 @@ class DesktopInputsTests(unittest.TestCase):
         manifest = self.root / ".DART-working-directory" / dart_archive.MANIFEST_NAME
         record = json.loads(manifest.read_text())[0]
         self.assertEqual((str(large), 1_000_001), (record["original_path"], record["file_size_bytes"]))
+        self.assertEqual("larger than 1 MB threshold", record["status"])
+        self.assertNotIn("title", record)
         export = next((self.root / ".DART-working-directory").glob("DART_export_*.csv"))
         with export.open(newline="") as stream:
             rows = list(csv.DictReader(stream))
@@ -164,7 +166,10 @@ class DesktopInputsTests(unittest.TestCase):
         private_form = next(row for row in private_rows if row["original_file_name"] == first.name)
         self.assertIn(private_form["parentid"], parent_ids)
         manifest = self.root / ".DART-working-directory" / dart_archive.MANIFEST_NAME
-        self.assertEqual(3, len(json.loads(manifest.read_text())))
+        manifest_rows = json.loads(manifest.read_text())
+        self.assertEqual(3, len(manifest_rows))
+        self.assertEqual({"private"}, {row["status"] for row in manifest_rows})
+        self.assertTrue(all("title" not in row for row in manifest_rows))
 
         for path in (first, second, private_only / "PRIVATE-other.pdf"):
             path.unlink()

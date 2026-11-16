@@ -3103,7 +3103,6 @@ def main(page: ft.Page):
                 reader = csv.DictReader(f)
                 template_columns = reader.fieldnames
                 core_rows_by_id = {row["objectid"]: row for row in reader if row.get("objectid")}
-                core_titles = {objectid: row.get("title", "") for objectid, row in core_rows_by_id.items()}
                 add_log_message(f"[DEBUG] Loaded CSV template with {len(template_columns)} columns")
                 logger.info(f"CSV template columns: {template_columns}")
         except Exception as ex:
@@ -3329,12 +3328,12 @@ def main(page: ft.Page):
             return
         try:
             archive_entries, archive_paths, retained_auxiliary = dart_archive.classify_sources(
-                objects, ohm_auxiliary_uploads, threshold_mb, core_titles
+                objects, ohm_auxiliary_uploads, threshold_mb
             )
             archive_entries.extend({
                 "path": obj["filepath"], "objectid": obj["objectid"],
                 "new_filename": obj["objectid"] + Path(obj["filepath"]).suffix,
-                "title": obj.get("title") or core_titles.get(obj["objectid"], ""),
+                "status": "private",
             } for obj in private_objects)
             dart_archive.record_archive_files(
                 get_dart_working_dir(working_dir), archive_entries, collection_id, APP_VERSION

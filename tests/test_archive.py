@@ -104,12 +104,25 @@ class ArchiveTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 dart_archive.threshold_bytes(invalid)
 
+    def test_archive_only_entries_explain_the_configured_threshold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            media = Path(directory) / "large.jpg"
+            with media.open("wb") as stream:
+                stream.truncate(1_000_001)
+            entries, archive_paths, retained = dart_archive.classify_sources(
+                [{"filepath": str(media), "objectid": "test_dg_1"}], [], 1
+            )
+            self.assertEqual("larger than 1 MB threshold", entries[0]["status"])
+            self.assertEqual({str(media)}, archive_paths)
+            self.assertEqual([], retained)
+
     def test_manifest_is_persistent_idempotent_and_rejects_bad_json(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             media = root / "source.pdf"
             media.write_bytes(b"example")
-            entry = {"path": media, "objectid": "test_dg_1", "new_filename": "test_dg_1.pdf", "title": "Title"}
+            entry = {"path": media, "objectid": "test_dg_1", "new_filename": "test_dg_1.pdf",
+                     "status": "larger than 50 MB threshold"}
             dart_archive.record_archive_files(root, [entry], "test", "1.0")
             manifest = root / dart_archive.MANIFEST_NAME
             first = json.loads(manifest.read_text())
@@ -119,8 +132,9 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual(str(media), record["original_path"])
             self.assertEqual("source.pdf", record["originating_file_name"])
             self.assertEqual("test_dg_1.pdf", record["new_filename"])
-            self.assertEqual(("Title", 7, "test", "1.0"),
-                             (record["title"], record["file_size_bytes"], record["collection_slug"], record["dart_version"]))
+            self.assertEqual(("larger than 50 MB threshold", 7, "test", "1.0"),
+                             (record["status"], record["file_size_bytes"], record["collection_slug"], record["dart_version"]))
+            self.assertNotIn("title", record)
             self.assertTrue(record["created_at"])
             self.assertTrue(record["username"])
             manifest.write_text("{bad")

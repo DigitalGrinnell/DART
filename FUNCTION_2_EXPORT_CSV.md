@@ -159,12 +159,13 @@ Function 2 records oversized originals and OHM media siblings, even in a
 local-only export, in `.DART-working-directory/DART_archive_only.json`. It
 adds or updates entries without deleting earlier records. Each entry contains
 `originating_file_name`, `original_path` (the absolute path on the machine
-running DART), `objectid`, `new_filename`, `created_at` (UTC), `title`,
+running DART), `objectid`, `new_filename`, `created_at` (UTC), `status`,
 `file_size_bytes`, `username`, `dart_version`, and `collection_slug`. For OHM
 siblings, `objectid` identifies the associated MP3 and `new_filename` follows
-the sibling's Azure naming convention. Titles available at export are used;
-otherwise the title is blank. Later metadata edits and GEMS backfill do not
-automatically update the manifest.
+the sibling's Azure naming convention. The `status` field explains why the file
+is listed: `private` for private files, or `larger than <threshold> MB threshold`
+for oversized media (50 MB by default). Later metadata edits and GEMS backfill
+do not automatically update the manifest.
 
 **The manifest is not a copy or backup of the media.** Keep every original
 file at its recorded path, backed up and accessible, until it is safely ingested
