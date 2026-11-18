@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dart_storage import atomic_bytes, atomic_json
+from dart_processing import get_display_template
 
 MANIFEST_NAME = "DART_archive_only.json"
 DEFAULT_THRESHOLD_MB = 50
@@ -115,28 +116,36 @@ def is_archive_only(path, threshold):
     return is_media and path.stat().st_size > threshold_bytes(threshold)
 
 
-def classify_sources(objects, auxiliary, threshold):
+def classify_sources(objects, auxiliary, threshold, restrict_media=False):
+    if not isinstance(restrict_media, bool):
+        raise ValueError("restrict_media must be a boolean.")
     entries = []
     archive_paths = set()
     for obj in objects:
         path = Path(obj["filepath"])
-        if is_archive_only(path, threshold):
+        media_template = get_display_template(path.suffix)
+        restricted = restrict_media and media_template in ("audio", "video")
+        if restricted or is_archive_only(path, threshold):
             obj["archive_only"] = True
-            obj["display_template"] = "record"
+            obj["display_template"] = media_template if media_template in ("audio", "video") else "record"
+            if restricted:
+                obj["object_location"] = ""
+                obj["file_UUID"] = Path(os.path.abspath(path)).as_uri()
             archive_paths.add(str(path))
             entries.append({
                 "path": path, "objectid": obj["objectid"],
                 "new_filename": obj.get("azure_object_id", obj["objectid"]) + path.suffix,
-                "status": f"larger than {threshold} MB threshold",
+                "status": "restricted media" if restricted else f"larger than {threshold} MB threshold",
             })
     retained = []
     for obj in auxiliary:
         path = Path(obj["source"])
-        if is_archive_only(path, threshold):
+        restricted = restrict_media and get_display_template(path.suffix) in ("audio", "video")
+        if restricted or is_archive_only(path, threshold):
             entries.append({
                 "path": path, "objectid": obj["objectid"],
                 "new_filename": obj["azure_object_id"] + path.suffix,
-                "status": f"larger than {threshold} MB threshold",
+                "status": "restricted media" if restricted else f"larger than {threshold} MB threshold",
             })
         else:
             retained.append(obj)

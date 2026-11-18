@@ -98,6 +98,7 @@ def prepare_project(service: JobService, entry: dict[str, Any]) -> Path:
         "group_compound_objects": setup.get("group_compound_objects", True),
         "create_multiple_objects": setup.get("create_multiple_objects", False),
         "process_OHM_data": setup.get("process_OHM_data", False),
+        "restrict_media": setup.get("restrict_media", False),
     }
     settings_path = work / ".DART-working-directory" / app.APP_SETTINGS_FILENAME
     if settings_path.exists() or settings_path.is_symlink():

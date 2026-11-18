@@ -13,6 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Function 4 now warns about matching private filenames instead of blocking
   comparison and merge, and identifies matching rows for review.
 
+## [7.3] - 2026-11-18
+
+### Added
+- Added `restrict_media`, off by default, to record audio and video of any size
+  for preservation without Azure uploads. Their local file URLs are exported
+  in `file_UUID` and `object_location` remains empty.
+
+### Changed
+- Archive-only audio and video now use their media-specific display templates
+  instead of `record`, including oversized OHM audio.
+
 ## [7.2] - 2026-11-16
 
 ### Changed

@@ -638,7 +638,7 @@ class ManagedTests(unittest.TestCase):
         self.assertEqual(("test_dg_123", "test_photo_dg_123.jpg", str(sibling)),
                          (records[0]["objectid"], records[0]["new_filename"], records[0]["original_path"]))
 
-    def test_large_ohm_mp3_exports_as_metadata_only_record(self):
+    def test_large_ohm_mp3_exports_as_audio(self):
         directory = self.source / "OHM-data" / "Person_dg_123"
         directory.mkdir(mode=0o700, parents=True)
         with (directory / "dg_123.mp3").open("wb") as stream:
@@ -647,9 +647,25 @@ class ManagedTests(unittest.TestCase):
         self.values.update({"process_OHM_data": True, "archive-only-file-threshold": 1})
         self.service.configure("operator", str(self.work), self.values)
         _, rows = read_csv(Path(self.export()["result"]["csv"]))
-        self.assertEqual(("test_dg_123", "record", ""), (
+        self.assertEqual(("test_dg_123", "audio", ""), (
             rows[0]["objectid"], rows[0]["display_template"], rows[0]["object_location"]
         ))
+
+    def test_restricted_media_exports_local_url_and_skips_upload(self):
+        audio = self.source / "sound file.mp3"
+        audio.write_bytes(b"audio")
+        self.values.update({"restrict_media": True, "azure_blob_storage_path": "assets/objs/test"})
+        self.service.configure("operator", str(self.work), self.values)
+        with patch.dict(os.environ, {"DART_AZURE_CONNECTION_STRING": "secret"}), \
+                patch("app.BlobServiceClient.from_connection_string", return_value=MagicMock()), \
+                patch.object(Workflow, "upload", return_value=("https://example.test/image", True)) as upload:
+            job = self.success("export", input_dir=str(self.source), allow_uploads=True)
+        self.assertEqual(["sample.jpg"], [call.args[1].name for call in upload.call_args_list])
+        columns, rows = read_csv(Path(job["result"]["csv"]))
+        row = next(row for row in rows if row["original_file_name"] == audio.name)
+        self.assertIn("file_UUID", columns)
+        self.assertEqual((audio.as_uri(), "", "audio"),
+                         (row["file_UUID"], row["object_location"], row["display_template"]))
 
     def test_invalid_archive_manifest_stops_export_before_upload(self):
         source = self.source / "large.pdf"

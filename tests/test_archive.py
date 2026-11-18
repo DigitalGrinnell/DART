@@ -10,11 +10,65 @@ from unittest.mock import Mock
 import app
 import dart_archive
 import dart_linux
+from dart_processing import build_export_rows, get_display_template
 from dart_service import JobService
 from unittest.mock import patch
 
 
 class ArchiveTests(unittest.TestCase):
+    def test_restricted_media_and_large_media_export(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            names = ("small audio.MP3", "large.webm", "large.wav", "small.jpg", "unknown.aiff")
+            for name in names:
+                path = root / name
+                with path.open("wb") as stream:
+                    stream.truncate(1_000_001 if name.startswith("large") else 1)
+            objects = [{"filepath": str(root / name), "filename": name,
+                        "objectid": str(index), "display_template": "transcript"}
+                       for index, name in enumerate(names)]
+            entries, paths, _ = dart_archive.classify_sources(objects, [], 1, True)
+            columns, rows = build_export_rows(["objectid", "original_file_name"], objects, [])
+            by_name = {row["original_file_name"]: row for row in rows}
+            for name, template in (("small audio.MP3", "audio"), ("large.webm", "video"),
+                                   ("large.wav", "audio"), ("unknown.aiff", "audio")):
+                with self.subTest(name=name):
+                    self.assertIn(str(root / name), paths)
+                    self.assertEqual(root.joinpath(name).as_uri(), by_name[name]["file_UUID"])
+                    self.assertEqual("", by_name[name]["object_location"])
+                    self.assertEqual(template, by_name[name]["display_template"])
+            self.assertNotIn(str(root / "small.jpg"), paths)
+            self.assertIn("file_UUID", columns)
+            self.assertEqual(4, len(entries))
+            self.assertEqual("audio", get_display_template(".aiff"))
+
+    def test_large_audio_is_audio_without_restriction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "large.mp3"
+            small = Path(directory) / "small.mp4"
+            small.write_bytes(b"video")
+            with source.open("wb") as stream:
+                stream.truncate(1_000_001)
+            obj = {"filepath": str(source), "filename": source.name, "objectid": "id",
+                   "display_template": "transcript"}
+            small_obj = {"filepath": str(small), "filename": small.name, "objectid": "small",
+                         "display_template": "video"}
+            _, paths, _ = dart_archive.classify_sources([obj, small_obj], [], 1)
+            self.assertEqual("audio", obj["display_template"])
+            self.assertNotIn("file_UUID", obj)
+            self.assertNotIn(str(small), paths)
+            self.assertEqual("video", small_obj["display_template"])
+
+    def test_restricted_ohm_media_sibling_is_not_retained_for_upload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sibling.mov"
+            path.write_bytes(b"video")
+            sibling = {"source": str(path), "objectid": "id", "azure_object_id": "sibling"}
+            entries, _, retained = dart_archive.classify_sources([], [sibling], 50, True)
+            self.assertEqual([], retained)
+            self.assertEqual("restricted media", entries[0]["status"])
+            self.assertEqual("sibling.mov", entries[0]["new_filename"])
+
     def test_private_prefixes_and_nested_compounds(self):
         prefixes = dart_archive.parse_private_prefixes("PRIVATE-; restricted-\nSECRET-")
         self.assertTrue(dart_archive.is_private("PRIVATE-note.docx", prefixes))

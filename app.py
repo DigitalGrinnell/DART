@@ -162,6 +162,7 @@ DEFAULT_APP_SETTINGS = {
     "process_OHM_data": False,
     "use_working_folder_for_file_selection": False,
     "overwrite_existing_azure_files": False,
+    "restrict_media": False,
     "archive-only-file-threshold": dart_archive.DEFAULT_THRESHOLD_MB,
     "private_file_prefixes": "",
     "collection-id": "",
@@ -886,6 +887,7 @@ DART_GENERATED_COLUMNS = GEMS_BACKFILL_PROTECTED_COLUMNS | frozenset({
     "originating_system_id",
     "type",
     "format",
+    "file_UUID",
 })
 
 MISSING_METADATA_WARNING_RATIO = 0.5
@@ -1122,6 +1124,10 @@ GEMS_ASSET_EXTENSIONS = {
 GEMS_DERIVATIVE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.tif', '.tiff', '.bmp', '.webp', '.pdf'}
 
 
+def is_audio_or_video(path) -> bool:
+    return get_display_template(Path(path).suffix) in ("audio", "video")
+
+
 def is_gems_objects_dir(input_dir) -> bool:
     """True when the inputs folder is a GEMS `objects/` directory."""
     return bool(input_dir) and Path(input_dir).name == GEMS_OBJECTS_DIR_NAME and Path(input_dir).is_dir()
@@ -1209,7 +1215,8 @@ def plan_gems_object_moves(input_dir, compared_rows: list, core_objectids: set,
             reason = "folder no longer exists"
         if not reason:
             for file_path in object_dir.rglob("*"):
-                if (file_path.is_file() and file_path.suffix.lower() in GEMS_ASSET_EXTENSIONS
+                if (file_path.is_file() and (file_path.suffix.lower() in GEMS_ASSET_EXTENSIONS
+                                             or is_audio_or_video(file_path))
                         and not is_hidden_path(file_path, object_dir)
                         and _normalized_path(file_path) not in row_paths):
                     reason = f"{file_path.name} was not part of this DART run"
@@ -2275,6 +2282,11 @@ def main(page: ft.Page):
             value=settings.get("overwrite_existing_azure_files", False),
             tooltip="Replace existing Azure blobs during Function 2/3 uploads",
         )
+        restrict_media_field = ft.Checkbox(
+            label="Restrict Audio and Video",
+            value=settings.get("restrict_media", False),
+            tooltip="Keep all audio and video originals local for archival download, regardless of size.",
+        )
         archive_threshold_field = ft.TextField(
             label="Archive-Only File Threshold (MB)",
             value=str(settings.get("archive-only-file-threshold", dart_archive.DEFAULT_THRESHOLD_MB)),
@@ -2552,6 +2564,7 @@ def main(page: ft.Page):
                 "process_OHM_data": parsed_process_ohm_data,
                 "use_working_folder_for_file_selection": parsed_use_working_folder,
                 "overwrite_existing_azure_files": parsed_overwrite_existing_azure_files,
+                "restrict_media": restrict_media_field.value,
                 "archive-only-file-threshold": archive_threshold,
                 "private_file_prefixes": prefixes_value,
                 "collection-id": parsed_collection_id,
@@ -2614,6 +2627,7 @@ def main(page: ft.Page):
                         process_ohm_data_field,
                         use_working_folder_field,
                         overwrite_existing_azure_files_field,
+                        restrict_media_field,
                         archive_threshold_field,
                         private_prefixes_field,
                         ft.Container(height=8),
@@ -2749,7 +2763,8 @@ def main(page: ft.Page):
             add_log_message(f"[DEBUG] Using {len(selected_files)} selected file(s)")
             logger.info(f"[DEBUG] Selected files: {selected_files}")
             for file_path in selected_files:
-                if file_path.is_file() and file_path.suffix.lower() in asset_extensions:
+                if file_path.is_file() and (file_path.suffix.lower() in asset_extensions
+                                            or is_audio_or_video(file_path)):
                     files.append(str(file_path))  # Store full path
             source_description = "from selected files"
         elif not process_ohm_data:
@@ -2762,7 +2777,8 @@ def main(page: ft.Page):
             logger.info(f"[DEBUG] Scanning folder: {current_directory}")
             # Recursive scan: includes per-compound subfolders (one compound per folder)
             for file_path in current_directory.rglob("*"):
-                if (file_path.is_file() and file_path.suffix.lower() in asset_extensions
+                if (file_path.is_file() and (file_path.suffix.lower() in asset_extensions
+                                             or is_audio_or_video(file_path))
                         and not is_hidden_path(file_path, current_directory)):
                     files.append(str(file_path))  # Store full path
             source_description = f"in {current_directory.name}"
@@ -3181,6 +3197,7 @@ def main(page: ft.Page):
         if not process_ohm_data and selected_files:
             for file_path in selected_files:
                 if file_path.is_file() and (file_path.suffix.lower() in asset_extensions
+                                            or is_audio_or_video(file_path)
                                             or dart_archive.is_private(file_path, private_prefixes)):
                     files.append(str(file_path))
         elif not process_ohm_data:
@@ -3191,6 +3208,7 @@ def main(page: ft.Page):
             # Recursive scan: includes per-compound subfolders (one compound per folder)
             for file_path in current_directory.rglob("*"):
                 if (file_path.is_file() and (file_path.suffix.lower() in asset_extensions
+                                             or is_audio_or_video(file_path)
                                              or dart_archive.is_private(file_path, private_prefixes))
                         and not is_hidden_path(file_path, current_directory)):
                     files.append(str(file_path))
@@ -3328,7 +3346,10 @@ def main(page: ft.Page):
             return
         try:
             archive_entries, archive_paths, retained_auxiliary = dart_archive.classify_sources(
-                objects, ohm_auxiliary_uploads, threshold_mb
+                objects, ohm_auxiliary_uploads, threshold_mb, settings.get("restrict_media", False)
+            )
+            dart_archive.classify_sources(
+                private_objects, [], threshold_mb, settings.get("restrict_media", False)
             )
             archive_entries.extend({
                 "path": obj["filepath"], "objectid": obj["objectid"],

@@ -75,6 +75,18 @@ class DesktopInputsTests(unittest.TestCase):
         self.settings["core_metadata_csv"] = str(core)
         return data / "PRIVATE_test_metadata.csv"
 
+    def test_restrict_media_setting_defaults_off_and_saves(self):
+        page = self.start_page()
+        self.execute(page, "function_0_app_settings")
+        checkbox = next(control for control in self.walk(page.controls)
+                        if isinstance(control, app.ft.Checkbox) and control.label == "Restrict Audio and Video")
+        self.assertFalse(checkbox.value)
+        checkbox.value = True
+        save = next(control for control in self.walk(page.controls)
+                    if isinstance(control, app.ft.TextButton) and control.text == "Save")
+        save.on_click(None)
+        self.assertTrue(app.save_app_settings.call_args.args[1]["restrict_media"])
+
     def test_analysis_retries_saved_inputs_after_volume_becomes_available(self):
         page = self.start_page(initially_unavailable=True)
         with patch.object(app, "shared_group_objects_by_source_directory",
@@ -124,6 +136,49 @@ class DesktopInputsTests(unittest.TestCase):
         row = next(row for row in rows if row["original_file_name"] == "first.jpg")
         self.assertEqual(record["objectid"], row["objectid"])
         self.assertEqual("record", row["display_template"])
+
+    def test_restricted_media_export_is_local_and_never_uploaded(self):
+        audio = self.inputs / "first" / "sound file.aiff"
+        audio.write_bytes(b"audio")
+        video = self.inputs / "second" / "movie.mp4"
+        with video.open("wb") as stream:
+            stream.truncate(1_000_001)
+        self.settings.update({"restrict_media": True, "archive-only-file-threshold": 1,
+                              "azure_blob_storage_path": "assets/objs/test",
+                              "azure_connection_string": "AccountName=test"})
+        page = self.start_page()
+        client = Mock()
+        client.get_container_client.return_value.exists.return_value = True
+        client.get_blob_client.return_value.exists.return_value = False
+        with patch.object(app, "init_azure_client", return_value=(True, client, "connected")), \
+                patch.object(app, "upload_to_azure", return_value=(True, "uploaded")) as upload:
+            self.execute(page, "function_2_export_csv")
+        self.assertEqual({"first.jpg", "second.jpg"}, {Path(call.args[1]).name for call in upload.call_args_list})
+        export = next((self.root / ".DART-working-directory").glob("DART_export_*.csv"))
+        with export.open(newline="") as stream:
+            rows = {row["original_file_name"]: row for row in csv.DictReader(stream)}
+        for path, template in ((audio, "audio"), (video, "video")):
+            self.assertEqual((path.as_uri(), "", template), (
+                rows[path.name]["file_UUID"], rows[path.name]["object_location"],
+                rows[path.name]["display_template"]))
+        records = json.loads((self.root / ".DART-working-directory" / dart_archive.MANIFEST_NAME).read_text())
+        self.assertEqual({"restricted media"}, {record["status"] for record in records})
+
+    def test_restricted_private_media_stays_in_private_csv(self):
+        private_csv = self.use_show_core()
+        audio = self.inputs / "first" / "PRIVATE-audio.mp3"
+        audio.write_bytes(b"audio")
+        self.settings.update({"restrict_media": True, "private_file_prefixes": "PRIVATE-"})
+        page = self.start_page()
+        self.execute(page, "function_2_export_csv")
+        with private_csv.open(newline="") as stream:
+            row = next(csv.DictReader(stream))
+        self.assertEqual((audio.as_uri(), "", "audio"),
+                         (row["file_UUID"], row["object_location"], row["display_template"]))
+        export = next((self.root / ".DART-working-directory").glob("DART_export_*.csv"))
+        self.assertNotIn(audio.name, export.read_text())
+        records = json.loads((self.root / ".DART-working-directory" / dart_archive.MANIFEST_NAME).read_text())
+        self.assertEqual("private", records[0]["status"])
 
     def test_private_compound_children_are_separate_and_never_uploaded(self):
         private_csv = self.use_show_core()

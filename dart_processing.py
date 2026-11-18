@@ -1,5 +1,6 @@
 """Processing shared by the desktop application and managed jobs."""
 import logging
+import mimetypes
 import re
 from pathlib import Path
 from typing import Any
@@ -678,8 +679,11 @@ def get_display_template(file_extension):
     elif ext in ['zip', 'tar', 'gz', '7z', 'rar', 'bz2', 'bin', 'diff', 'asc']:
         return 'record'
 
-    # Unknown → empty (will use CB default)
+    # Recognized audio and video extensions not listed above.
     else:
+        content_type, _ = mimetypes.guess_type(f"file.{ext}")
+        if content_type and content_type.startswith(("audio/", "video/")):
+            return content_type.split("/", 1)[0]
         return ''
 
 
@@ -693,6 +697,11 @@ def build_export_rows(template_columns, objects, compound_objects, process_ohm_d
     if any(obj.get("archive_only") or (process_ohm_data and obj.get("display_template") == "record")
            for obj in objects) and 'display_template' not in export_columns:
         export_columns.append('display_template')
+
+    if any(obj.get("file_UUID") for obj in objects):
+        for column in ('file_UUID', 'object_location'):
+            if column not in export_columns:
+                export_columns.append(column)
 
     # Ensure 'filepath' column is included (required by Function 3 for derivative generation)
     if 'filepath' not in export_columns:
@@ -792,6 +801,8 @@ def build_export_rows(template_columns, objects, compound_objects, process_ohm_d
                     row[col] = obj.get('format', '')
             elif col == 'object_location':
                 row[col] = obj.get('object_location', '')
+            elif col == 'file_UUID':
+                row[col] = obj.get('file_UUID', '')
             elif col == 'type':
                 row[col] = obj.get('type', '')
             elif col == 'object_transcript':

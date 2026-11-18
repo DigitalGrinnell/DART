@@ -22,7 +22,7 @@ from dart_processing import (analyze_compound_objects, build_export_rows, get_de
 from dart_storage import Storage, atomic_bytes, atomic_json, private
 
 KINDS = {"analyze", "export", "derivatives", "handoff", "prepare"}
-FLAGS = ("group_compound_objects", "create_multiple_objects", "process_OHM_data")
+FLAGS = ("group_compound_objects", "create_multiple_objects", "process_OHM_data", "restrict_media")
 FORM_FIELDS = ("input_dir", "core_metadata_csv", "gems_metadata_csv", "collection-id", "azure_blob_storage_path",
                "archive-only-file-threshold")
 ASSETS = core.GEMS_ASSET_EXTENSIONS
@@ -115,9 +115,10 @@ def save_settings(storage: Storage, working: str, values: dict[str, Any]) -> dic
     dart_archive.threshold_bytes(threshold)
     settings["archive-only-file-threshold"] = int(threshold)
     for key in FLAGS:
-        if not isinstance(values.get(key), bool):
+        value = values.get(key, settings[key] if key == "restrict_media" else None)
+        if not isinstance(value, bool):
             raise ValueError(f"{key} must be a boolean.")
-        settings[key] = values[key]
+        settings[key] = value
     if settings["group_compound_objects"] and not settings["process_OHM_data"]:
         columns, _ = read_csv(csv_path)
         if not {"parentid", "type", "display_template"}.issubset(columns):
@@ -177,7 +178,8 @@ class Workflow:
             self.report(f"Scanning sources: {len(files)} assets found", None)
             for name in sorted(names):
                 path = Path(directory) / name
-                eligible = path.suffix.lower() == ".mp3" if self.settings["process_OHM_data"] else path.suffix.lower() in ASSETS
+                eligible = (path.suffix.lower() == ".mp3" if self.settings["process_OHM_data"]
+                            else path.suffix.lower() in ASSETS or core.is_audio_or_video(path))
                 if not name.startswith(".") and eligible:
                     files.append(path)
         if not files:
@@ -286,7 +288,7 @@ class Workflow:
             atomic_json(self.hidden / core.APP_SETTINGS_FILENAME, self.settings)
         threshold = self.settings["archive-only-file-threshold"]
         archive_entries, archive_paths, retained_auxiliary = dart_archive.classify_sources(
-            objects, auxiliary, threshold
+            objects, auxiliary, threshold, self.settings["restrict_media"]
         )
         self.checkpoint()
         dart_archive.record_archive_files(self.hidden, archive_entries, collection, core.APP_VERSION)

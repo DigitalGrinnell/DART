@@ -109,12 +109,12 @@ The function automatically populates these CollectionBuilder fields from your as
   - Files are uploaded to Azure with renamed filenames matching their objectid
   - Example: `https://collectionbuilder.blob.core.windows.net/objs/tdps/dg_1715614222.jpg`
   - Empty for archive-only media or if Azure is not configured in App Settings
-- **OHM-data fields**: In `process_OHM_data` mode, the export has one standalone row per MP3. Each row has `type=transcript`, `object_location` set to the MP3's Azure URL, and `object_transcript` set to the transcript CSV filename. The transcript CSV is copied to `_data/transcripts` and uploaded to Azure under the parallel `transcripts` path.
+- **OHM-data fields**: In `process_OHM_data` mode, the export has one standalone row per MP3. Each row has `type=transcript`, `object_location` set to the MP3's Azure URL unless archive-only, and `object_transcript` set to the transcript CSV filename unless private. The public transcript CSV is copied to `_data/transcripts` and uploaded to Azure under the parallel `transcripts` path.
 - **OHM-data identifiers**: OHM file IDs are taken from the existing filename stem. For example, `dg_1782850662.pdf` uploads as `re26/re26_dg_1782850662.pdf` when `collection-id` is `re26`; Function 2 does not replace it with a newly generated timestamp ID.
 - **Existing filename identifiers**: For other assets without a saved path mapping, a `dg_<number>` found in the filename is preserved instead of generating a new timestamp identifier. The configured `collection-id` prefix is still applied.
 - **OHM-data IDs**: Each standalone MP3 object uses the corresponding prefixed `dg_` basename as its `objectid`; `parentid` is blank because OHM mode does not create compound objects.
 - OHM-mode exports retain a blank `parentid` column when it is present in the configured template, but do not create parent-child relationships in the CSV.
-- **OHM-data MP3 records**: The MP3 record uses `display_template=transcript` because its associated transcript CSV defines the CollectionBuilder presentation.
+- **OHM-data MP3 records**: The MP3 normally uses `display_template=transcript` because its associated transcript CSV defines the CollectionBuilder presentation. Archive-only or restricted MP3s use `audio` instead.
 - **OHM-data originating system**: Each MP3 record uses its OHM package directory as `originating_system_id`.
 - **OHM-data title/interviewee/interviewer**: `interviewee` is derived from `originating_system_id` by stripping the trailing `dg_<epoch>` basename and replacing remaining `_`/`-` separators with spaces. `title` is set to `Oral history interview with <interviewee>`. `interviewer` is set to the first `speaker` value found in the sibling `*_transcript.json` file's `segments` list, if present. `title`, `interviewee`, and `interviewer` columns are added to the export automatically in OHM mode if not already present in the template.
 - **OHM-data subject**: `subject` is set to a fixed, semicolon-separated list of subject headings: `<interviewee>—Interviews; Grinnell College—Students; Grinnell College—History; Alumni and alumnae; College students—Iowa; College environment—Iowa; Higher education—Iowa—History; Oral history`. The `subject` column is added to the export automatically in OHM mode if not already present in the template.
@@ -147,15 +147,32 @@ continue through the usual upload workflow. Media are identified by supported
 extensions and recognized media MIME types inferred from their filenames.
 Existing Azure blobs are not deleted or changed.
 
-Archive-only originals retain their durable `objectid` and use
-`display_template=record`, SHOW's metadata-only item layout. Function 2 adds
-the `display_template` column to the export if necessary; when it is absent
-from the core CSV, choose to append the export-only column during Function 4
-review so the layout is retained. In OHM mode this replaces the `transcript`
-layout for an archive-only MP3. Function 3 may still generate derivatives
-from accessible archive-only originals.
+Archive-only originals retain their durable `objectid`. Audio and video use
+their `audio` or `video` display template based on the extension or recognized
+MIME type; oversized images and PDFs use `record`. In OHM mode `audio`
+replaces the `transcript` layout for an archive-only MP3. Function 3 may still
+generate derivatives from accessible archive-only originals.
 
-Function 2 records oversized originals and OHM media siblings, even in a
+When **Restrict Audio and Video** (`restrict_media`) is checked, all audio and
+video originals are archive-only regardless of size. Their `object_location`
+is blank and `file_UUID` contains the percent-encoded absolute local `file://`
+URL of the original. This is a local filesystem reference, not a hosted
+download URL: it works only where that path is accessible, and a public website
+cannot generally open it. It may expose local path details if published.
+Existing Azure blobs are not deleted. OHM audio/video siblings are also kept
+out of Azure and recorded in the manifest, but have no separate CSV row.
+Private audio/video children remain in the private CSV rather than the public
+export; their local URLs are written only to that private CSV.
+
+Function 2 adds `display_template`, `file_UUID`, and `object_location` to the
+export as needed. If a column is absent from the core CSV, Function 4 can
+append it for selected new rows; for existing rows, add the column to the core
+and compare again. Review field changes carefully so an existing Archivematica
+UUID is not inadvertently replaced. DART does not yet ingest into Archivematica
+or automatically populate `package_UUID` and `file_UUID` with Archivematica
+identifiers.
+
+Function 2 records oversized or restricted originals and OHM media siblings, even in a
 local-only export, in `.DART-working-directory/DART_archive_only.json`. It
 adds or updates entries without deleting earlier records. Each entry contains
 `originating_file_name`, `original_path` (the absolute path on the machine
@@ -163,8 +180,9 @@ running DART), `objectid`, `new_filename`, `created_at` (UTC), `status`,
 `file_size_bytes`, `username`, `dart_version`, and `collection_slug`. For OHM
 siblings, `objectid` identifies the associated MP3 and `new_filename` follows
 the sibling's Azure naming convention. The `status` field explains why the file
-is listed: `private` for private files, or `larger than <threshold> MB threshold`
-for oversized media (50 MB by default). Later metadata edits and GEMS backfill
+is listed: `private` for private files, `restricted media` for media restricted
+by the setting, or `larger than <threshold> MB threshold` for oversized media
+(50 MB by default). Later metadata edits and GEMS backfill
 do not automatically update the manifest.
 
 **The manifest is not a copy or backup of the media.** Keep every original
@@ -202,7 +220,8 @@ review any older parent filename separately before merging. Function 4 matches
 rows by `original_file_name`, so a newly named parent may appear as a new
 record even when its `objectid` already exists. In OHM mode, a private sibling
 is associated with the public MP3; a private transcript is not copied or
-uploaded, and the MP3 uses the metadata-only `record` layout.
+uploaded, and the MP3 uses the metadata-only `record` layout unless it is
+itself archive-only or restricted, in which case it uses `audio`.
 
 Each export containing private files **replaces** the private CSV with that
 export's private rows; an export without private files leaves the existing CSV
