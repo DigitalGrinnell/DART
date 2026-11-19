@@ -61,7 +61,6 @@ APP_NAME="DART"
 DISPLAY_NAME="DART — Digital Asset Routing and Transformation"
 ZIP_NAME="${APP_NAME}_v${VERSION}_Windows.zip"
 ZIP_OUT="$ROOT_DIR/$ZIP_NAME"
-    "$ROOT_DIR/" "$STAGE_DIR/"
 
 STAGING="$(mktemp -d)"
 trap 'rm -rf "$STAGING"' EXIT
@@ -86,9 +85,18 @@ rsync -a \
     --exclude='*.dmg' \
     --exclude='*.zip' \
     --exclude='logfiles/' \
+    --exclude='.session_notes/' \
+    --exclude='operations/' \
+    --exclude='.vscode/' \
+    --exclude='SESSION_SUMMARY_*.md' \
+    --exclude='*.pdf' \
+    --exclude='app.py.bak*' \
+    --exclude='*.backup*' \
+    --exclude='app_from_ohm.py' \
+    --exclude='app_ohm_full.py' \
     --exclude='*.pyc' \
     --exclude='__pycache__/' \
-    "$SCRIPT_DIR/" "$STAGE_DIR/"
+    "$ROOT_DIR/" "$STAGE_DIR/"
 
 echo "  ✓ $(find "$STAGE_DIR" -type f | wc -l | tr -d ' ') files copied"
 

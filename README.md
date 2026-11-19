@@ -9,6 +9,10 @@ Key functions, in typical order of execution, include:
 3) generating small and thumbnail derivatives, 
 4) compare and selectively merge new metadata with old to complete the routing and transformation workflow, including depositing objects and derivatives into managed, web-addressable Azure Blob Storage.
 
+For a concise feature and milestone overview, see
+[FEATURE_HISTORY.md](FEATURE_HISTORY.md). The [CHANGELOG.md](CHANGELOG.md)
+contains release-by-release details.
+
 ## Working with AI
 
 This repository now includes project-specific AI guidance files:
@@ -177,20 +181,22 @@ DART provides a comprehensive platform for digital asset management workflows:
 
 DART for macOS features an **automated installer** that requires no admin permissions.
 
-**What you receive:** `DART_v2.0.dmg`
+**What you receive:** `DART_v7.3.dmg`
 
 **Installation steps:**
 
 1. **Open the DMG** (double-click it)
 
 2. **Run the installer:**
-   - Double-click: `Install DART.command`
-   - **First time only:** If blocked, right-click → Open → click "Open"
+   - Control-click `Install DART.command` → **Open** → confirm
+   - The DMG is unsigned and not notarized. Only bypass Gatekeeper for a copy
+     obtained from a trusted DART release location.
 
 3. **Follow prompts:**
-   - Installation completes in seconds
    - DART installs to `~/DART/` (your home directory)
-   - A launcher appears on your Desktop
+   - If updating, confirming the installer prompt replaces `~/DART/`; it does
+     not remove `~/DART-data/` or your project working folders.
+   - A launcher appears on your Desktop when the Desktop folder exists.
 
 4. **Eject the DMG**
 
@@ -199,7 +205,8 @@ DART for macOS features an **automated installer** that requires no admin permis
    - Or navigate to `~/DART/` and double-click `Launch DART.command`
 
 **First launch:**
-- Terminal window opens and installs dependencies (1-2 minutes, first time only)
+- Terminal window opens and installs dependencies (allow a few minutes and an
+  internet connection on first launch)
 - DART application window opens when ready
 - Keep Terminal open while using DART
 
@@ -215,37 +222,44 @@ DART for macOS features an **automated installer** that requires no admin permis
 
 📖 **For detailed instructions, see [INSTALLATION.md](INSTALLATION.md)**
 
-### Installing from ZIP (Development)
+### Installing from Windows ZIP
 
-1. **Clone or download this repository**
+1. Download `DART_v7.3_Windows.zip` from the DART release location provided by
+   your administrator.
+2. Extract the archive and open the `DART_v7.3` folder.
+3. Open `scripts` and double-click `run.bat`.
+
+On first launch, the launcher creates a virtual environment and installs
+dependencies; allow a few minutes and an internet connection. Keep the console
+window open while DART is running.
+
+**Prerequisites:** Windows 10 or later and Python 3.8+ with **Add Python to
+PATH** enabled.
+
+📖 For detailed instructions, see [INSTALLATION.md](INSTALLATION.md).
+
+### Running from Source
+
+1. Clone the DART repository and its required sibling dependency:
    ```bash
    git clone https://github.com/Digital-Grinnell/DART.git
    cd DART
-   ```
-
-2. **Install common-DG-utilities (required dependency)**
-   ```bash
    cd ..
    git clone https://github.com/Digital-Grinnell/common-DG-utilities.git
    cd DART
    ```
 
-3
-3. **Run the launcher:**
-  - Double-click: `scripts/run.bat`
+2. Launch from the repository root:
+   ```bash
+   # macOS/Linux
+   ./run.sh
 
-4. **First launch:**
-   - Command Prompt opens and installs dependencies (1-2 minutes, first time only)
-   - DART application window opens when ready
-   - Keep Command Prompt open while using DART
+   # Windows
+   scripts\run.bat
+   ```
 
-**Prerequisites:** Python 3.8+ must be installed with "Add Python to PATH" checked
-- Download from [python.org/downloads](https://python.org/downloads)
-- Verify: `python --version` in Command Prompt
-
-**Optional:** Create desktop shortcut: Right-click `scripts/run.bat` → Send to → Desktop
-
-📖 **For detailed instructions, see [INSTALLATION.md](INSTALLATION.md)**
+The launcher creates a virtual environment, installs dependencies, and starts
+DART. First launch requires an internet connection.
 
 1. **Clone or copy this repository**
    ```bash
@@ -495,64 +509,14 @@ DART uses OHM's proven layout structure:
 - **Status Output**: Multi-line with copy-to-clipboard
 - **Log Output**: Timestamped entries with copy and clear functionality
 - **Help Mode**: Toggle to view function documentation instead of executing
- (`hdiutil` for macOS, `zip` for all)
-- **common-DG-utilities**: Required repository must exist as sibling directory
-  - Clone from: `https://github.com/Digital-Grinnell/common-DG-utilities`
-  - Expected location: `../common-DG-utilities/` (relative to DART directory)
-  - The build scripts automatically include these utilities in the packages
-  - If not found, the build will show a warning but continue
 
-**What the installers do:**
-- **macOS DMG**: Creates an auto-installer that installs to `~/DART/` (no admin required)
-- **Windows ZIP**: Packageswith auto-installer:
+## Building and Distributing Installers
 
-```bash
-bash build_dmg.sh 2.0
-```
-
-This creates `DART_v2.0.dmg` with:
-- Auto-installer script (`Install DART.command`)
-- Installs to `~/DART/` (no admin permissions required)
-- Includes common-DG-utilities automatically
-- Creates desktop launcher
-- No code signing (users must right-click → Open on first use)
-
-**Distribution:**
-- Send the DMG file to users
-- Users double-click the installer
-- Installation completes automatically
-- No manual file copying required
-Create a distributable DMG file:
-DART_v2.0_Windows.zip` with:
-- All source files including common-DG-utilities
-- `scripts/run.bat` launcher
-- Automatic dependency installation on first launch
-- No admin permissions required
-
-**Distribution:**
-- Send the ZIP file to users
-- Users extract and run `scripts/run.bat`
-- First launch installs dependencies automatically
-
-Recipients need Python 3.8+ installed with "Add Python to PATH" checked
-- Self-contained app bundle
-- Automatic dependency installation on first launch
-- No code signing (users must right-click → Open on first launch)
-
-### Windows ZIP
-
-Create a distributable ZIP package:
-
-```bash
-bash build_windows_zip.sh 1.0
-```
-
-This creates `YourApp_v1.0_Windows.zip` with:
-- All source files
-- `scripts/run.bat` launcher
-- Automatic dependency installation on first launch
-
-Recipients need Python 3 installed (one-time setup).
+The macOS DMG and Windows ZIP are built with
+[`scripts/build_dmg.sh`](scripts/build_dmg.sh) and
+[`scripts/build_windows_zip.sh`](scripts/build_windows_zip.sh). For build
+commands, platform testing, and release distribution guidance, see the
+[DART Distribution Guide](DISTRIBUTION.md).
 
 ## Logging
 

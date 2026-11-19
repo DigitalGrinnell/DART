@@ -189,6 +189,15 @@ rsync -a \
     --exclude='*.dmg' \
     --exclude='*.zip' \
     --exclude='logfiles/' \
+    --exclude='.session_notes/' \
+    --exclude='operations/' \
+    --exclude='.vscode/' \
+    --exclude='SESSION_SUMMARY_*.md' \
+    --exclude='*.pdf' \
+    --exclude='app.py.bak*' \
+    --exclude='*.backup*' \
+    --exclude='app_from_ohm.py' \
+    --exclude='app_ohm_full.py' \
     --exclude='*.pyc' \
     --exclude='__pycache__/' \
     "$ROOT_DIR/" "$SRC_DIR/"

@@ -2,6 +2,9 @@
 
 This document provides detailed installation instructions for DART (Digital Asset Routing and Transformation) on macOS, Windows, and Linux systems.
 
+This guide is for people installing DART. Maintainers preparing release packages
+should use the [DART Distribution Guide](DISTRIBUTION.md).
+
 ---
 
 ## Table of Contents
@@ -15,11 +18,10 @@ This document provides detailed installation instructions for DART (Digital Asse
 
 ---
 
----
-
 ## macOS Installation (DMG)
 
-DART for macOS is distributed as a DMG file with an automated installer that requires **no admin permissions**.
+DART 7.3 for macOS is distributed as `DART_v7.3.dmg`. The installer puts the
+application in `~/DART/` and does not require administrator permissions.
 
 ### Prerequisites
 
@@ -32,35 +34,39 @@ DART for macOS is distributed as a DMG file with an automated installer that req
 ### Installation Steps
 
 1. **Download the DMG**
-   - Download `DART_vX.x.dmg` from your distribution source
+   - Download `DART_v7.3.dmg` from the DART release location provided by your
+     administrator.
 
 2. **Open the DMG**
    - Double-click the downloaded DMG file
-   - A new window opens showing the installer contents. 
-
-Note for Mac users who are UPDATING DART to a new version:  You may need to remove or move your `~/DART/` folder to get it out of the way BEFORE the `Install DART.command` can run successfully!  
+   - A Finder window opens with `Install DART.command` and a README.
 
 3. **Run the Installer**
-   - Double-click: `Install DART.command`
-   
-   **Note for first-time users (unsigned app) and updates:**
-   - If the installer won't open, macOS Gatekeeper is blocking it
-   - Right-click on `Install DART.command` → select "Open"
-   - If the app is blocked close the dialog then proceed to `System Settings...` and `Privacy & Security` 
-   - The key is to look for a statement like "Install DART.command was blocked..." and there should be an `Open Anyway` button beside it.  Click that button to allow the install.  
-   - This is only needed once
+   - Control-click `Install DART.command`, choose **Open**, and confirm that
+     you want to open it.
+   - The distributed DMG is not code-signed or notarized, so macOS may block it
+     the first time. Only bypass Gatekeeper if you obtained the DMG from a
+     trusted DART release location and verified the version. If macOS offers
+     **Open Anyway**, it is in **System Settings > Privacy & Security**.
+   - This approval may be needed once for each downloaded release.
 
 4. **Follow the Installation**
    - A Terminal window opens with the installer
    - The installer checks for Python 3
-   - Confirms installation location: `~/DART/`
-   - Copies all files (takes a few seconds)
-   - Creates a launcher on your Desktop
-   - Press Enter when finished
+   - Installs DART to `~/DART/`
+   - If that folder already exists, the installer asks before replacing it.
+     Confirming replaces the application folder; close DART first and keep any
+     personal files elsewhere.
+   - Recreates a Desktop launcher if the Desktop folder exists
+   - Press Enter to close the installer
 
 5. **Eject the DMG**
    - Right-click the mounted DART volume → Eject
    - Or drag it to the Trash
+
+Updating DART replaces `~/DART/`, but does not remove `~/DART-data/` or your
+project working folders. Do not delete `~/DART-data/` during an update; it
+contains user-level settings and the encryption key.
 
 ### Installation Location
 
@@ -95,18 +101,16 @@ The installer creates: **Launch DART** on your Desktop
 2. **Automatic Setup (first time only)**
    - A Terminal window opens
    - Python virtual environment is created in `~/DART/.venv/`
-   - Dependencies install automatically (1-2 minutes)
-   - Progress is shown in the Terminal
+   - Dependencies are downloaded and installed automatically (allow a few minutes and an internet connection)
+   - Progress and any errors appear in Terminal
 
 3. **DART Window Opens**
    - The DART application window appears when ready
-   - The Terminal window stays open (don't close it!)
-   - Minimize the Terminal if you want it out of the way
+   - Keep the Terminal window open while using DART
 
 4. **Subsequent Launches**
    - Just double-click the launcher
-   - DART starts immediately (no setup needed)
-   - Dependencies are already installed
+   - The launcher checks and installs required dependencies before starting DART
 
 ### Why No Applications Folder?
 
@@ -138,12 +142,12 @@ DART for Windows is distributed as a ZIP archive.
 ### Installation Steps
 
 1. **Download the ZIP**
-   - Download `DART_v2.x_Windows.zip` from your distribution source
+   - Download `DART_v7.3_Windows.zip` from the DART release location provided
+     by your administrator.
 
 2. **Extract the Archive**
    - Right-click the ZIP file → Extract All...
-   - Choose a convenient location (e.g., `C:\Users\YourName\DART\`)
-   - Or extract to your Desktop
+   - Choose a convenient location, such as a folder under your user profile
 
 3. **Installation Location**
    - The extracted folder contains all DART files
@@ -151,30 +155,25 @@ DART for Windows is distributed as a ZIP archive.
 
 ### First Launch
 
-1. **Open the DART folder**
-   - Navigate to where you extracted the files
-
-2. **Run the launcher**
-   - Double-click: `run.bat`
+1. Open the extracted `DART_v7.3` folder, then open its `scripts` folder.
+2. Double-click `run.bat`.
 
 3. **Automatic Setup (first time only)**
    - A Command Prompt window opens
    - Python virtual environment is created in `.venv\`
-   - Dependencies install automatically (1-2 minutes)
+   - Dependencies install automatically (allow a few minutes and an internet connection)
    - Progress is shown in the console
 
 4. **DART Window Opens**
    - The DART application window appears when ready
-   - The Command Prompt window stays open (don't close it!)
-   - Minimize the console if you want it out of the way
+   - Keep the Command Prompt window open while using DART
 
 5. **Subsequent Launches**
-   - Just double-click `run.bat`
-   - DART starts immediately
+   - Launch DART using `scripts\run.bat` again
 
 ### Creating a Desktop Shortcut (Optional)
 
-1. Right-click `run.bat` → Send to → Desktop (create shortcut)
+1. Right-click `scripts\run.bat` → Show more options → Send to → Desktop (create shortcut)
 2. Rename the shortcut to "DART"
 3. Double-click the Desktop shortcut to launch DART
 
@@ -253,7 +252,9 @@ Update `/path/to/DART/` with your actual path.
 
 ### Python 3.8 or Later
 
-DART requires Python 3.8 or later. To verify your Python version:
+DART's desktop launchers require Python 3.8 or later. The separate headless
+Linux workflow has its own Python 3.11+ requirement; see
+[Headless Linux Installation](INSTALL-LINUX.md). To verify your Python version:
 
 ```bash
 # macOS/Linux
@@ -283,13 +284,15 @@ The following Python packages are installed automatically on first launch:
 
 - **flet 0.25.2** — UI framework
 - **flet-desktop 0.25.2** — Desktop-specific features
-- **cryptography** — Encrypted settings storage
+- **cryptography 41.0.0+** — Encrypted settings storage
 - **azure-storage-blob 12.19.0+** — Azure Blob Storage integration
-- **Pillow** — Image processing
-- **PyMuPDF (fitz)** — PDF processing
-- **pandas** — Data manipulation
+- **Pillow 10.0.0+** — Image processing
+- **csvdiff 0.3.0+** — CSV comparison
+- **PyMuPDF 1.24.0+** — PDF processing
 
-**You don't need to install these manually** — the `run.sh` / `scripts/run.sh` / `scripts/run.bat` launchers handle everything.
+**You don't need to install these manually** — the `scripts/run.sh` and
+`scripts/run.bat` launchers install the packages listed in
+`python_requirements.txt`.
 
 ---
 
@@ -297,17 +300,16 @@ The following Python packages are installed automatically on first launch:
 
 ### macOS Issues
 
-#### "Install DART.command can't be opened"
+#### "Install DART.command Can't Be Opened"
 
-**Cause:** macOS Gatekeeper blocking unsigned app
+**Cause:** macOS Gatekeeper is blocking the unsigned, unnotarized installer.
 
 **Solution:**
-1. Right-click on `Install DART.command`
-2. Select "Open" from the menu
-3. Click "Open" in the security dialog
-4. Only needed once
+1. Confirm the DMG came from your trusted DART release location.
+2. Control-click `Install DART.command` and choose **Open**.
+3. If necessary, use **System Settings > Privacy & Security > Open Anyway**.
 
-#### "Python 3 not found" error
+#### "Python 3 Not Found" Error
 
 **Cause:** Python not installed or not in PATH
 
@@ -321,15 +323,15 @@ brew install python
 python3 --version
 ```
 
-#### Installer says "DART is already installed"
+#### Installer Says "DART Is Already Installed"
 
 **Cause:** Previous DART installation exists
 
 **Solution:**
-- Type `y` to overwrite the old installation
-- Or type `n` to cancel and manually remove `~/DART/` first
+- Close DART, then type `y` to replace the application in `~/DART/`.
+- Type `n` to cancel. You do not need to remove the folder manually.
 
-#### DART window doesn't appear
+#### DART Window Doesn't Appear
 
 **Cause:** Terminal window was closed during setup
 
@@ -341,7 +343,7 @@ python3 --version
 
 ### Windows Issues
 
-#### "python is not recognized"
+#### "Python Is Not Recognized"
 
 **Cause:** Python not installed or not in PATH
 
@@ -351,7 +353,7 @@ python3 --version
 3. Restart Command Prompt
 4. Verify: `python --version`
 
-#### Dependencies fail to install
+#### Dependencies Fail to Install
 
 **Cause:** Network issues or pip outdated
 
@@ -364,7 +366,7 @@ python -m pip install --upgrade pip
 scripts\run.bat
 ```
 
-#### Virtual environment errors
+#### Virtual Environment Errors
 
 **Cause:** Corrupt virtual environment
 
@@ -379,7 +381,7 @@ scripts\run.bat
 
 ### Linux Issues
 
-#### `./run.sh`: Permission denied
+#### `./run.sh`: Permission Denied
 
 **Cause:** Script not executable
 
@@ -389,7 +391,7 @@ chmod +x run.sh scripts/run.sh
 ./run.sh
 ```
 
-#### "No module named 'tkinter'"
+#### "No Module Named 'tkinter'"
 
 **Cause:** tkinter not installed (required by flet)
 
@@ -404,7 +406,7 @@ sudo dnf install python3-tkinter
 
 ### Common Issues (All Platforms)
 
-#### DART closes immediately after launch
+#### DART Closes Immediately After Launch
 
 **Cause:** Error during startup
 
@@ -413,18 +415,18 @@ sudo dnf install python3-tkinter
 2. Check log files in `~/DART-data/logfiles/` or `{working_folder}/logfiles/`
 3. Common causes:
    - Missing Python dependencies (re-run installer)
-   - Corrupted settings file (delete `~/DART-data/persistent.json`)
+   - Corrupted user settings: back up `~/DART-data/` before contacting support; do not delete the encryption key.
 
-#### "common_dg_utilities not found" error
+#### "common_dg_utilities Not Found" Error
 
 **Cause:** DMG/ZIP was missing the utilities folder
 
 **Solution:**
-- This should not happen with properly built installers v2.2+
+- This should not happen with a correctly built release package.
 - The build scripts automatically bundle common_dg_utilities
 - For developers: Ensure `../common-DG-utilities/` exists when building
 
-#### "not a valid editable requirement" error
+#### "Not a Valid Editable Requirement" Error
 
 **Cause:** Using source repository with missing sibling common-DG-utilities repo
 
@@ -449,10 +451,13 @@ cd DART
    rm -rf ~/DART
    ```
 
-2. **Delete user data (optional):**
+2. **Delete user data only if you intend to remove saved settings and the
+   encryption key:**
    ```bash
    rm -rf ~/DART-data
    ```
+
+   Back up any settings you need first. Removing the encryption key can make encrypted values in saved settings unreadable.
 
 3. **Remove Desktop shortcut:**
    - Drag `Launch DART` from Desktop to Trash
@@ -516,7 +521,7 @@ Include relevant log excerpts when reporting issues.
 ### Minimum
 
 - **OS:** macOS 12+, Windows 10+, or modern Linux
-- **Python:** 3.8 or later
+- **Python:** 3.8 or later (desktop); 3.11 or later for headless Linux
 - **Memory:** 2 GB RAM
 - **Disk:** 500 MB free space
 - **Display:** 1280x720 or higher
@@ -537,12 +542,14 @@ DART stores sensitive settings (like Azure connection strings) using encrypted s
 
 - **Encryption key:** `~/DART-data/encryption_key`
 - **Settings file:** `~/DART-data/persistent.json` (sensitive fields encrypted)
-- **Working settings:** `{working_folder}/dart_settings.json` (per-project)
+- **Working settings:**
+  `{working_folder}/.DART-working-directory/dart_settings.json` (per-project)
 
 **Keep your encryption key secure.** If lost, you'll need to re-enter encrypted settings.
 
 ---
 
-*Last updated: June 5, 2026*  
-*DART Version: 2.x*  
+*Last updated: November 19, 2026*
+
+*DART Version: 7.3*
 *Documentation: [https://github.com/Digital-Grinnell/DART](https://github.com/Digital-Grinnell/DART)*
